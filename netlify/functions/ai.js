@@ -5,9 +5,11 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
-    // Increase max_tokens if not set high enough
-    if (body.max_tokens < 8000) body.max_tokens = 8000;
-    
+    body.max_tokens = 8000;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -16,21 +18,26 @@ exports.handler = async (event) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
 
-    const data = await response.json();
+    clearTimeout(timeout);
+
+    const text = await response.text();
+
     return {
       statusCode: 200,
       headers: {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
       },
-      body: JSON.stringify(data),
+      body: text,
     };
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: { message: err.message } }),
     };
   }
 };
