@@ -660,14 +660,9 @@ Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra 
 }`;
 
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
+      const res=await fetch("/.netlify/functions/ai",{
         method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "x-api-key":ANTHROPIC_KEY,
-          "anthropic-version":"2023-06-01",
-          "anthropic-beta":"interleaved-thinking-2025-05-14"
-        },
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:4000,
