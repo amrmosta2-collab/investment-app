@@ -622,7 +622,7 @@ Do ONE web search for "Egypt investment opportunities EGX gold 2026" then respon
 Fill in real data from your search. Keep it concise.`;
 
     try{
-      const res=await fetch("/.netlify/functions/ai",{
+      const res=await fetch("/api/ai",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
