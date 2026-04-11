@@ -5,6 +5,9 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
+    // Increase max_tokens if not set high enough
+    if (body.max_tokens < 8000) body.max_tokens = 8000;
+    
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
