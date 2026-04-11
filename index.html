@@ -614,50 +614,12 @@ function InsightsPanel({fundBalance,annualReturn,usdRate}){
 
   const fetchInsights=async()=>{
     setLoading(true);setError("");setInsights(null);
-    const prompt=`You are a financial advisor specializing in the Egyptian market. The user has the following investment profile:
+    const prompt=`You are an Egyptian market financial advisor. User profile: fund balance ${Math.round(fundBalance).toLocaleString()} EGP, ${annualReturn}% annual return, USD rate ${usdRate}, goal: grow wealth, risk: moderate, open to EGX stocks, gold, banking sector.
 
-- Current fund balance: ${Math.round(fundBalance).toLocaleString()} EGP
-- Current fund annual return: ${annualReturn}%
-- Current USD/EGP rate: ${usdRate}
-- Current investments: ${USER_PROFILE.currentInvestments}
-- Goal: ${USER_PROFILE.goal}
-- Risk tolerance: ${USER_PROFILE.risk}
-- Extra monthly capacity: ${USER_PROFILE.extraMonthly}
-- Open to: ${USER_PROFILE.openTo}
+Do ONE web search for "Egypt investment opportunities EGX gold 2026" then respond ONLY with this JSON (no markdown, no backticks):
+{"summary":"2 sentence Egypt market summary","lastUpdated":"${new Date().toLocaleDateString()}","opportunities":[{"id":"1","category":"Stocks","icon":"📈","title":"name","ticker":"ticker or null","currentPrice":"price or null","signal":"BUY","signalReason":"one sentence","potential":"High","timeframe":"medium term","risk":"Medium","howToInvest":"via Thndr app","keyPoints":["point1","point2"],"warning":null},{"id":"2","category":"Gold","icon":"🥇","title":"Gold EGP","ticker":null,"currentPrice":"price","signal":"BUY","signalReason":"one sentence","potential":"High","timeframe":"long term","risk":"Low","howToInvest":"via gold funds or physical","keyPoints":["point1","point2"],"warning":null},{"id":"3","category":"Fixed Income","icon":"🏦","title":"CBE Rate Update","ticker":null,"currentPrice":null,"signal":"HOLD","signalReason":"one sentence","potential":"Medium","timeframe":"short term","risk":"Low","howToInvest":"keep in Thndr fund","keyPoints":["point1","point2"],"warning":null}],"portfolioSuggestion":"one specific suggestion for this user","disclaimer":"For informational purposes only"}
 
-Search for the latest data on:
-1. Current EGX30 top performing stocks and any standout opportunities
-2. Gold price in EGP and outlook
-3. Egyptian banking sector stocks (CIB, QNB, Abu Dhabi Islamic Bank Egypt etc)
-4. Real estate investment opportunities in Egypt (REITs or direct)
-5. Any other high-potential Egyptian market opportunities right now
-6. Current CBE interest rate and outlook for fixed income funds
-
-Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra text) in this exact format:
-{
-  "summary": "2-3 sentence overall market summary for Egypt right now",
-  "lastUpdated": "today's date",
-  "opportunities": [
-    {
-      "id": "unique_id",
-      "category": "Stocks|Gold|Real Estate|Fixed Income|Currency",
-      "icon": "single emoji",
-      "title": "opportunity name",
-      "ticker": "ticker if applicable or null",
-      "currentPrice": "current price or value in EGP if available",
-      "signal": "BUY|WATCH|HOLD|AVOID",
-      "signalReason": "one sentence why",
-      "potential": "estimated upside % or qualitative (e.g. High/Medium/Low)",
-      "timeframe": "short/medium/long term",
-      "risk": "Low|Medium|High",
-      "howToInvest": "practical step for this user (e.g. via Thndr app)",
-      "keyPoints": ["point 1", "point 2", "point 3"],
-      "warning": "one risk to be aware of or null"
-    }
-  ],
-  "portfolioSuggestion": "specific allocation suggestion for this user based on their profile",
-  "disclaimer": "short disclaimer"
-}`;
+Fill in real data from your search. Keep it concise.`;
 
     try{
       const res=await fetch("/.netlify/functions/ai",{
@@ -665,7 +627,7 @@ Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra 
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:8000,
+          max_tokens:2000,
           tools:[{type:"web_search_20250305",name:"web_search"}],
           messages:[{role:"user",content:prompt}]
         })
