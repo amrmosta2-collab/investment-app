@@ -614,12 +614,20 @@ function InsightsPanel({fundBalance,annualReturn,usdRate}){
 
   const fetchInsights=async()=>{
     setLoading(true);setError("");setInsights(null);
-    const prompt=`You are an Egyptian market financial advisor. User profile: fund balance ${Math.round(fundBalance).toLocaleString()} EGP, ${annualReturn}% annual return, USD rate ${usdRate}, goal: grow wealth, risk: moderate, open to EGX stocks, gold, banking sector.
+    const today=new Date().toLocaleDateString("en-GB");
+    const prompt=`You are an Egyptian market financial advisor. Today is ${today}.
 
-Do ONE web search for "Egypt investment opportunities EGX gold 2026" then respond ONLY with this JSON (no markdown, no backticks):
-{"summary":"2 sentence Egypt market summary","lastUpdated":"${new Date().toLocaleDateString()}","opportunities":[{"id":"1","category":"Stocks","icon":"📈","title":"name","ticker":"ticker or null","currentPrice":"price or null","signal":"BUY","signalReason":"one sentence","potential":"High","timeframe":"medium term","risk":"Medium","howToInvest":"via Thndr app","keyPoints":["point1","point2"],"warning":null},{"id":"2","category":"Gold","icon":"🥇","title":"Gold EGP","ticker":null,"currentPrice":"price","signal":"BUY","signalReason":"one sentence","potential":"High","timeframe":"long term","risk":"Low","howToInvest":"via gold funds or physical","keyPoints":["point1","point2"],"warning":null},{"id":"3","category":"Fixed Income","icon":"🏦","title":"CBE Rate Update","ticker":null,"currentPrice":null,"signal":"HOLD","signalReason":"one sentence","potential":"Medium","timeframe":"short term","risk":"Low","howToInvest":"keep in Thndr fund","keyPoints":["point1","point2"],"warning":null}],"portfolioSuggestion":"one specific suggestion for this user","disclaimer":"For informational purposes only"}
+User profile: fund balance ${Math.round(fundBalance).toLocaleString()} EGP, ${annualReturn}% annual return, USD/EGP rate ${usdRate}, goal: grow wealth long term, risk: moderate, open to EGX stocks, gold, banking sector.
 
-Fill in real data from your search. Keep it concise.`;
+Search for EACH of these separately to get accurate real-time data:
+1. Search "EGX30 index today ${new Date().getFullYear()}" to get current EGX30 price
+2. Search "gold price Egypt EGP per gram today" to get current gold price in EGP
+3. Search "CBE interest rate Egypt ${new Date().getFullYear()}" to get current CBE rate
+
+Then respond ONLY with this exact JSON (no markdown, no backticks, no extra text before or after):
+{"summary":"2 sentence Egypt market summary with real numbers you found","lastUpdated":"${today}","opportunities":[{"id":"1","category":"Stocks","icon":"📈","title":"EGX 30 Index Exposure","ticker":"EGX30","currentPrice":"use exact number you found","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"medium term","risk":"Medium","howToInvest":"Via Thndr app - buy EGX30 index funds or top stocks","keyPoints":["point1 with real data","point2 with real data"],"warning":"main risk"},{"id":"2","category":"Gold","icon":"🥇","title":"Gold EGP","ticker":null,"currentPrice":"use exact price you found per gram","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"long term","risk":"Low","howToInvest":"Via gold savings accounts or physical gold shops","keyPoints":["point1","point2"],"warning":null},{"id":"3","category":"Fixed Income","icon":"🏦","title":"CBE Rate & Your Fund","ticker":null,"currentPrice":"CBE rate you found","signal":"HOLD","signalReason":"one sentence about rate outlook","potential":"Medium","timeframe":"short term","risk":"Low","howToInvest":"Keep money in Thndr fixed income fund at ${annualReturn}%","keyPoints":["point1","point2"],"warning":"Watch for CBE rate cuts"}],"portfolioSuggestion":"specific suggestion for user with ${Math.round(fundBalance).toLocaleString()} EGP balance","disclaimer":"For informational purposes only. Not financial advice."}
+
+IMPORTANT: Use the EXACT real numbers you find in searches. Do not use approximate or outdated numbers.`;
 
     try{
       const res=await fetch("/api/ai",{
@@ -627,7 +635,7 @@ Fill in real data from your search. Keep it concise.`;
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:2000,
+          max_tokens:3000,
           tools:[{type:"web_search_20250305",name:"web_search"}],
           messages:[{role:"user",content:prompt}]
         })
