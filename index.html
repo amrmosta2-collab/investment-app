@@ -665,7 +665,7 @@ Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra 
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:4000,
+          max_tokens:8000,
           tools:[{type:"web_search_20250305",name:"web_search"}],
           messages:[{role:"user",content:prompt}]
         })
@@ -673,7 +673,10 @@ Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra 
       const data=await res.json();
       if(data.error){throw new Error(data.error.message||"API error");}
       const text=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
-      const clean=text.replace(/```json|```/g,"").trim();
+      // Try to extract JSON even if response has extra text
+      const jsonMatch=text.match(/\{[\s\S]*\}/);
+      if(!jsonMatch)throw new Error("No valid response received. Please try again.");
+      const clean=jsonMatch[0];
       const parsed=JSON.parse(clean);
       setInsights(parsed);
       setLastUpdated(new Date().toLocaleString());
