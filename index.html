@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="theme-color" content="#080c14"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <title>حاسبة الاستثمار الشخصية</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{background:#080c14;min-height:100vh;overflow-x:hidden;}
+    input[type=range]{-webkit-appearance:none;appearance:none;}
+    input[type=number]{-moz-appearance:textfield;}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+    ::-webkit-scrollbar{width:3px;height:3px;}
+    ::-webkit-scrollbar-track{background:#080c14;}
+    ::-webkit-scrollbar-thumb{background:#182033;border-radius:4px;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+    @keyframes ping{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:0.4}}
+    .cal-row:hover{background:rgba(245,166,35,0.025)!important;}
+    select,input{-webkit-appearance:none;}
+    /* Mobile responsive */
+    @media(max-width:700px){
+      .main-grid{grid-template-columns:1fr!important;}
+      .stat-grid{grid-template-columns:1fr 1fr!important;}
+      .spark-grid{grid-template-columns:1fr!important;}
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useMemo,useCallback,useEffect}=React;
+
+const fmtEGP=(n)=>"ج.م "+new Intl.NumberFormat("en-US",{maximumFractionDigits:0}).format(Math.round(Math.abs(n)));
+const MONTHS_EN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const C={bg:"#080c14",card:"#0d1220",border:"#182033",accent:"#f5a623",green:"#27ae60",blue:"#2980e8",purple:"#8e44ad",red:"#c0392b",teal:"#16a085",text:"#dde3ef",muted:"#3d4f6a",sub:"#7a8fa8"};
+
+function absToDate(i){const t=3+i;return{year:2026+Math.floor(t/12),month:((t%12)+12)%12};}
+
+function buildCircleSchedule(horizonMonths){
+  const PAYOUT_SLOT=4,DURATION=6,BIG_CONTRIB=2000,SMALL_CONTRIB=1000;
+  const result=[];
+  for(let i=0;i<horizonMonths;i++){
+    let bigWage=0,bigPayout=0,smallWage=0,smallPayout=0;
+    for(let start=-2;start<=i;start+=2){
+      const m=i-start+1;
+      if(m>=1&&m<=DURATION){m===PAYOUT_SLOT?bigPayout+=10000:bigWage+=BIG_CONTRIB;}
+    }
+    for(let start=1;start<=i;start+=2){
+      const m=i-start+1;
+      if(m>=1&&m<=DURATION){m===PAYOUT_SLOT?smallPayout+=5000:smallWage+=SMALL_CONTRIB;}
+    }
+    result.push({absIdx:i,bigWage,bigPayout,smallWage,smallPayout});
+  }
+  return result;
+}
+
+function getBoostAt(timeline,absIdx){
+  let val=0;
+  for(const p of timeline){if(p.absIdx<=absIdx)val=p.amount;else break;}
+  return val;
+}
+
+const USD_PAYOUTS=new Set();
+for(let p=0;p<=12;p++){USD_PAYOUTS.add(2+p*20);USD_PAYOUTS.add(3+p*20);}
+
+function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],horizonMonths}){
+  const mRate=annualReturn/100/12,mInfl=inflation/100/12;
+  const schedule=buildCircleSchedule(horizonMonths);
+  let balance=initialFund,totalDeposited=initialFund,inflBase=1;
+  const rows=[];
+  for(let i=0;i<horizonMonths;i++){
+    const{year,month}=absToDate(i);
+    const{bigWage,bigPayout,smallWage,smallPayout}=schedule[i];
+    const bigBoost=getBoostAt(bigBoostTimeline,i);
+    const smallBoost=getBoostAt(smallBoostTimeline,i);
+    const bigFundDrain=Math.min(bigBoost,bigWage+(bigPayout>0?2000:0));
+    const smallFundDrain=Math.min(smallBoost,smallWage+(smallPayout>0?1000:0));
+    const totalFundDrain=Math.min(bigFundDrain+smallFundDrain,balance*0.2);
+    const bigContrib=2000+bigBoost;
+    const smallContrib=1000+smallBoost;
+    const bigPayoutBoosted=bigPayout>0?bigContrib*5:0;
+    const smallPayoutBoosted=smallPayout>0?smallContrib*5:0;
+    const returnAmt=balance*mRate;
+    balance+=returnAmt;
+    balance-=totalFundDrain;
+    const usdIn=USD_PAYOUTS.has(i)?2000*usdRate:0;
+    const manualIn=manualDeposits.filter(d=>d.absIdx===i).reduce((s,d)=>s+d.egpAmount,0);
+    const totalIn=bigPayoutBoosted+smallPayoutBoosted+usdIn+manualIn;
+    balance+=totalIn;totalDeposited+=totalIn;
+    inflBase*=(1+mInfl);
+    rows.push({absIdx:i,year,month,balance,realValue:balance/inflBase,returnAmt,totalFundDrain,bigWage,bigFund:bigFundDrain,smallWage,smallFund:smallFundDrain,bigPayout:bigPayoutBoosted,smallPayout:smallPayoutBoosted,usdIn,manualIn,totalIn,totalDeposited,gain:balance-totalDeposited});
+  }
+  return rows;
+}
+
+function Sparkline({data,color}){
+  if(!data||data.length<2)return null;
+  const max=Math.max(...data),min=Math.min(...data),range=max-min||1;
+  const W=200,H=44;
+  const pts=data.map((v,i)=>`${(i/(data.length-1))*W},${H-((v-min)/range)*H}`).join(" ");
+  const id=`sg${color.replace(/[^a-z0-9]/gi,"")}`;
+  return(<svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:44}}>
+    <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
+      <stop offset="100%" stopColor={color} stopOpacity="0"/>
+    </linearGradient></defs>
+    <polygon points={`0,${H} ${pts} ${W},${H}`} fill={`url(#${id})`}/>
+    <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>);
+}
+
+function Slider({label,value,min,max,step,onChange,fmt,color=C.accent}){
+  const pct=((value-min)/(max-min))*100;
+  return(<div style={{marginBottom:"1.1rem"}}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.25rem"}}>
+      <span style={{fontSize:"0.73rem",color:C.sub}}>{label}</span>
+      <span style={{fontSize:"0.88rem",fontWeight:700,color,fontFamily:"monospace"}}>{fmt(value)}</span>
+    </div>
+    <div style={{position:"relative",height:5,background:C.border,borderRadius:99}}>
+      <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${pct}%`,background:color,borderRadius:99}}/>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e=>onChange(Number(e.target.value))}
+        style={{position:"absolute",inset:0,width:"100%",opacity:0,cursor:"pointer",height:"100%",margin:0}}/>
+    </div>
+  </div>);
+}
+
+function StatCard({label,value,sub,color=C.accent,icon}){
+  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:"0.9rem 1.1rem",borderTop:`2px solid ${color}`}}>
+    <div style={{fontSize:"0.62rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.25rem"}}>{icon} {label}</div>
+    <div style={{fontSize:"1.15rem",fontWeight:800,color:C.text,fontFamily:"monospace",lineHeight:1.2}}>{value}</div>
+    {sub&&<div style={{fontSize:"0.65rem",color:C.sub,marginTop:"0.2rem"}}>{sub}</div>}
+  </div>);
+}
+
+function BoostTimeline({label,color,timeline,onChange,maxBoost,horizonMonths}){
+  const[selMonth,setSelMonth]=useState(0);
+  const[selAmount,setSelAmount]=useState(0);
+  const[boostError,setBoostError]=useState("");
+  const addPoint=()=>{
+    const cur=getBoostAt(timeline,selMonth);
+    if(selAmount===cur){setBoostError(`Already at ج.م ${selAmount.toLocaleString()}/mo — change amount to update.`);return;}
+    setBoostError("");
+    const updated=[...timeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selAmount}].sort((a,b)=>a.absIdx-b.absIdx);
+    onChange(updated);
+  };
+  const remove=(idx)=>onChange(timeline.filter(p=>p.absIdx!==idx));
+  const monthOptions=Array.from({length:horizonMonths},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+  return(<div style={{background:"#070b12",border:`1px solid ${color}20`,borderRadius:11,padding:"0.9rem",marginBottom:"0.8rem"}}>
+    <div style={{fontSize:"0.75rem",fontWeight:700,color,marginBottom:"0.7rem"}}>{label}</div>
+    {timeline.length===0&&<div style={{fontSize:"0.68rem",color:C.muted,marginBottom:"0.6rem",fontStyle:"italic"}}>No boost — fully from wages</div>}
+    {timeline.map(p=>{
+      const{year,month}=absToDate(p.absIdx);
+      const ni=timeline.findIndex(x=>x.absIdx>p.absIdx);
+      const np=ni>=0?timeline[ni]:null;
+      const until=np?(()=>{const d=absToDate(np.absIdx-1);return`${MONTHS_EN[d.month]} ${d.year}`;})():"onwards";
+      return(<div key={p.absIdx} style={{display:"flex",alignItems:"center",gap:"0.4rem",marginBottom:"0.35rem",background:`${color}0e`,borderRadius:7,padding:"0.38rem 0.65rem"}}>
+        <div style={{flex:1}}>
+          <span style={{fontSize:"0.7rem",color:C.sub}}>From </span>
+          <span style={{fontSize:"0.72rem",color:C.text,fontWeight:700}}>{MONTHS_EN[month]} {year}</span>
+          <span style={{fontSize:"0.68rem",color:C.muted}}> → {until}</span>
+        </div>
+        <span style={{fontSize:"0.75rem",color,fontFamily:"monospace",fontWeight:700}}>+{fmtEGP(p.amount)}/mo</span>
+        <button onClick={()=>remove(p.absIdx)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem",padding:"0 0.15rem"}}>✕</button>
+      </div>);
+    })}
+    <div style={{display:"flex",gap:"0.4rem",marginTop:"0.6rem",flexWrap:"wrap"}}>
+      <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setBoostError("");}}
+        style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.4rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
+        {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+      </select>
+      <input type="number" value={selAmount} min={0} max={maxBoost} step={100}
+        onChange={e=>{setSelAmount(Number(e.target.value));setBoostError("");}}
+        style={{background:C.card,border:`1px solid ${boostError?C.red:C.border}`,borderRadius:7,color:C.text,padding:"0.4rem",fontSize:"0.72rem",fontFamily:"monospace",flex:"1 1 80px",minWidth:0,outline:"none"}}/>
+      <button onClick={addPoint} style={{background:`${color}18`,border:`1px solid ${color}45`,borderRadius:7,color,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+ Set</button>
+    </div>
+    {boostError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.35rem"}}>⚠️ {boostError}</div>}
+    <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
+      Active: <span style={{color,fontFamily:"monospace",fontWeight:700}}>ج.م {getBoostAt(timeline,selMonth).toLocaleString()}/mo</span> · max {fmtEGP(maxBoost)}/mo
+    </div>
+  </div>);
+}
+
+const BIG_JOIN_MONTHS=new Set([1,3,5,7,9,11]);
+const SMALL_JOIN_MONTHS=new Set([4,6,8,10,0,2]);
+
+// unique key per alert: "big-absIdx" or "small-absIdx"
+function alertKey(type,absIdx){return`${type}-${absIdx}`;}
+
+function AlertPanel({horizonMonths}){
+  const today=new Date();
+  const todayAbs=(today.getFullYear()-2026)*12+today.getMonth()-3;
+
+  // Load joined set from localStorage
+  const[joined,setJoined]=useState(()=>{
+    try{const s=localStorage.getItem("inv_joined");return s?new Set(JSON.parse(s)):new Set();}
+    catch{return new Set();}
+  });
+
+  const tick=(key)=>{
+    setJoined(prev=>{
+      const next=new Set(prev);
+      next.add(key);
+      try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}
+      return next;
+    });
+  };
+
+  const untick=(key)=>{
+    setJoined(prev=>{
+      const next=new Set(prev);
+      next.delete(key);
+      try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}
+      return next;
+    });
+  };
+
+  const alerts=[];
+  for(let i=Math.max(0,todayAbs);i<horizonMonths;i++){
+    const{year,month}=absToDate(i);
+    const isCurrent=i===todayAbs,isNext=i===todayAbs+1,monthsAway=i-todayAbs;
+    if(BIG_JOIN_MONTHS.has(month)){
+      const key=alertKey("big",i);
+      alerts.push({absIdx:i,year,month,type:"big",label:"Big EGP Circle",color:C.blue,icon:"🔵",contrib:"ج.م 2,000/mo",payout:"ج.م 10,000",isCurrent,isNext,monthsAway,key,done:joined.has(key)});
+    }
+    if(SMALL_JOIN_MONTHS.has(month)&&i>=1){
+      const key=alertKey("small",i);
+      alerts.push({absIdx:i,year,month,type:"small",label:"Small EGP Circle",color:C.green,icon:"🟢",contrib:"ج.م 1,000/mo",payout:"ج.م 5,000",isCurrent,isNext,monthsAway,key,done:joined.has(key)});
+    }
+  }
+  alerts.sort((a,b)=>a.absIdx-b.absIdx);
+
+  const curr=alerts.filter(a=>a.isCurrent&&!a.done);
+  const next=alerts.filter(a=>a.isNext&&!a.done);
+  const upcoming=alerts.filter(a=>!a.isCurrent&&!a.isNext&&a.monthsAway<=12&&!a.done);
+  const doneAlerts=alerts.filter(a=>a.done);
+
+  const TickBtn=({a})=>(
+    <button onClick={()=>tick(a.key)}
+      style={{display:"flex",alignItems:"center",gap:"0.3rem",background:`${C.green}18`,border:`1px solid ${C.green}40`,borderRadius:7,color:C.green,padding:"0.25rem 0.6rem",cursor:"pointer",fontFamily:"inherit",fontSize:"0.7rem",fontWeight:700,flexShrink:0}}>
+      ✓ Joined
+    </button>
+  );
+
+  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem",marginBottom:"0.8rem"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.7rem"}}>
+      <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>🔔 Circle Join Alerts</div>
+      {doneAlerts.length>0&&<span style={{fontSize:"0.62rem",color:C.green}}>✓ {doneAlerts.length} joined</span>}
+    </div>
+    <div style={{fontSize:"0.68rem",color:C.sub,marginBottom:"0.8rem"}}>Today: <span style={{color:C.text,fontWeight:700}}>{MONTHS_EN[today.getMonth()]} {today.getFullYear()}</span></div>
+
+    {/* THIS MONTH */}
+    {curr.length>0&&(<div style={{marginBottom:"1rem"}}>
+      <div style={{fontSize:"0.68rem",color:C.accent,fontWeight:700,marginBottom:"0.5rem",display:"flex",alignItems:"center",gap:"0.4rem"}}>
+        <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:C.accent,animation:"ping 1.5s infinite"}}/>ACTION NEEDED THIS MONTH
+      </div>
+      {curr.map((a,i)=>(<div key={i} style={{background:`${a.color}15`,border:`1px solid ${a.color}40`,borderRadius:10,padding:"0.7rem 0.9rem",marginBottom:"0.4rem"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem",marginBottom:"0.3rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <span style={{fontSize:"1rem"}}>{a.icon}</span>
+            <span style={{fontSize:"0.82rem",fontWeight:800,color:a.color}}>Join {a.label} Now!</span>
+          </div>
+          <TickBtn a={a}/>
+        </div>
+        <div style={{fontSize:"0.7rem",color:C.sub}}>Contribute <span style={{color:C.text,fontWeight:700}}>{a.contrib}</span> · Collect <span style={{color:C.green,fontWeight:700}}>{a.payout}</span></div>
+      </div>))}
+    </div>)}
+
+    {/* NEXT MONTH */}
+    {next.length>0&&(<div style={{marginBottom:"1rem"}}>
+      <div style={{fontSize:"0.67rem",color:C.purple,fontWeight:700,marginBottom:"0.5rem"}}>⏰ NEXT MONTH</div>
+      {next.map((a,i)=>(<div key={i} style={{background:`${a.color}0c`,border:`1px solid ${a.color}28`,borderRadius:10,padding:"0.65rem 0.9rem",marginBottom:"0.4rem"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.45rem"}}>
+            <span>{a.icon}</span><span style={{fontSize:"0.78rem",fontWeight:700,color:C.text}}>Join {a.label}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <span style={{fontSize:"0.68rem",color:C.purple,fontFamily:"monospace",fontWeight:700}}>{MONTHS_EN[a.month]} {a.year}</span>
+            <TickBtn a={a}/>
+          </div>
+        </div>
+        <div style={{fontSize:"0.68rem",color:C.sub,marginTop:"0.2rem"}}>{a.contrib} · payout {a.payout}</div>
+      </div>))}
+    </div>)}
+
+    {/* UPCOMING */}
+    {upcoming.length>0&&(<div>
+      <div style={{fontSize:"0.67rem",color:C.muted,fontWeight:700,marginBottom:"0.5rem",textTransform:"uppercase",letterSpacing:"0.08em"}}>📅 Upcoming (12 months)</div>
+      <div style={{maxHeight:200,overflowY:"auto"}}>
+        {upcoming.map((a,i)=>(<div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.35rem 0.5rem",borderRadius:7,marginBottom:"0.25rem",background:i%2===0?"rgba(255,255,255,0.015)":"transparent",gap:"0.4rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.4rem",flex:1,minWidth:0}}>
+            <span style={{fontSize:"0.8rem"}}>{a.icon}</span>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:"0.72rem",color:C.text,fontWeight:600}}>{a.label}</div>
+              <div style={{fontSize:"0.62rem",color:C.muted}}>{a.contrib} · {a.payout}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexShrink:0}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:"0.72rem",color:a.color,fontWeight:700,fontFamily:"monospace"}}>{MONTHS_EN[a.month]} {a.year}</div>
+              <div style={{fontSize:"0.6rem",color:C.muted}}>in {a.monthsAway} mo</div>
+            </div>
+            <TickBtn a={a}/>
+          </div>
+        </div>))}
+      </div>
+    </div>)}
+
+    {/* JOINED (done) section - collapsible */}
+    {doneAlerts.length>0&&(<div style={{marginTop:"0.8rem",borderTop:`1px solid ${C.border}`,paddingTop:"0.7rem"}}>
+      <div style={{fontSize:"0.65rem",color:C.green,fontWeight:700,marginBottom:"0.5rem"}}>✅ Joined Circles</div>
+      {doneAlerts.map((a,i)=>(<div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.35rem 0.6rem",borderRadius:7,marginBottom:"0.25rem",background:"rgba(39,174,96,0.06)",border:"1px solid rgba(39,174,96,0.15)",opacity:0.8}}>
+        <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
+          <span style={{fontSize:"0.8rem"}}>{a.icon}</span>
+          <div>
+            <div style={{fontSize:"0.7rem",color:C.green,fontWeight:600,textDecoration:"line-through"}}>{a.label}</div>
+            <div style={{fontSize:"0.62rem",color:C.muted}}>{MONTHS_EN[a.month]} {a.year}</div>
+          </div>
+        </div>
+        <button onClick={()=>untick(a.key)}
+          style={{fontSize:"0.62rem",color:C.muted,background:"none",border:`1px solid ${C.border}`,borderRadius:5,padding:"0.15rem 0.4rem",cursor:"pointer",fontFamily:"inherit"}}>
+          ↩ Undo
+        </button>
+      </div>))}
+    </div>)}
+
+    {curr.length===0&&next.length===0&&upcoming.length===0&&doneAlerts.length===0&&(
+      <div style={{fontSize:"0.72rem",color:C.muted,textAlign:"center",padding:"1rem"}}>No upcoming alerts in horizon</div>
+    )}
+    {curr.length===0&&next.length===0&&upcoming.length===0&&doneAlerts.length>0&&(
+      <div style={{fontSize:"0.72rem",color:C.green,textAlign:"center",padding:"0.5rem"}}>🎉 All upcoming circles joined!</div>
+    )}
+  </div>);
+}
+
+function ManualDepositsPanel({deposits,onChange,horizonMonths}){
+  const[selMonth,setSelMonth]=useState(0);
+  const[selAmount,setSelAmount]=useState(0);
+  const[selLabel,setSelLabel]=useState("");
+  const[selCurrency,setSelCurrency]=useState("EGP");
+  const[selUsdRate,setSelUsdRate]=useState(49);
+  const monthOptions=Array.from({length:horizonMonths},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+  const ICONS={"Bonus":"🎁","Salary":"💼","Gift":"🎀","Side Income":"💡","Other":"💰"};
+  const addDeposit=()=>{
+    if(!selAmount||selAmount<=0)return;
+    const egpAmount=selCurrency==="USD"?selAmount*selUsdRate:selAmount;
+    const{year,month}=absToDate(selMonth);
+    onChange([...deposits,{id:Date.now(),absIdx:selMonth,year,month,label:selLabel||"Extra Deposit",amount:selAmount,currency:selCurrency,egpAmount,usdRate:selCurrency==="USD"?selUsdRate:null}]);
+    setSelAmount(0);setSelLabel("");
+  };
+  const remove=(id)=>onChange(deposits.filter(d=>d.id!==id));
+  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
+    <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>➕ Manual Deposits</div>
+    {deposits.length===0&&<div style={{fontSize:"0.68rem",color:C.muted,fontStyle:"italic",marginBottom:"0.8rem"}}>No manual deposits yet</div>}
+    {deposits.length>0&&<div style={{marginBottom:"0.9rem",maxHeight:160,overflowY:"auto"}}>
+      {deposits.sort((a,b)=>a.absIdx-b.absIdx).map(d=>(<div key={d.id} style={{display:"flex",alignItems:"center",gap:"0.4rem",background:"rgba(245,166,35,0.06)",border:"1px solid rgba(245,166,35,0.15)",borderRadius:8,padding:"0.45rem 0.65rem",marginBottom:"0.35rem"}}>
+        <span style={{fontSize:"0.85rem"}}>{ICONS[d.label]||"💰"}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:"0.72rem",fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</div>
+          <div style={{fontSize:"0.62rem",color:C.muted}}>{MONTHS_EN[d.month]} {d.year} · {d.currency==="USD"?`$${d.amount.toLocaleString()} = `:""}{fmtEGP(d.egpAmount)}</div>
+        </div>
+        <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem"}}>✕</button>
+      </div>))}
+    </div>}
+    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.8rem"}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"0.3rem",marginBottom:"0.6rem"}}>
+        {Object.entries(ICONS).map(([l,ic])=>(<button key={l} onClick={()=>setSelLabel(l)}
+          style={{fontSize:"0.65rem",padding:"0.2rem 0.5rem",borderRadius:6,border:`1px solid ${selLabel===l?C.accent:C.border}`,background:selLabel===l?`${C.accent}18`:"transparent",color:selLabel===l?C.accent:C.muted,cursor:"pointer",fontFamily:"inherit"}}>
+          {ic} {l}
+        </button>))}
+      </div>
+      <input value={selLabel} onChange={e=>setSelLabel(e.target.value)} placeholder="Or type custom label…"
+        style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"inherit",outline:"none",marginBottom:"0.5rem"}}/>
+      <select value={selMonth} onChange={e=>setSelMonth(Number(e.target.value))}
+        style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"inherit",marginBottom:"0.5rem"}}>
+        {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+      </select>
+      <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.5rem"}}>
+        <select value={selCurrency} onChange={e=>setSelCurrency(e.target.value)}
+          style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",width:70,flexShrink:0}}>
+          <option value="EGP">EGP</option><option value="USD">USD</option>
+        </select>
+        <input type="number" value={selAmount||""} min={0} step={100} onChange={e=>setSelAmount(Number(e.target.value))} placeholder="Amount"
+          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",minWidth:0}}/>
+      </div>
+      {selCurrency==="USD"&&<div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom:"0.5rem"}}>
+        <span style={{fontSize:"0.68rem",color:C.muted,whiteSpace:"nowrap"}}>Rate $1 =</span>
+        <input type="number" value={selUsdRate} min={1} step={0.5} onChange={e=>setSelUsdRate(Number(e.target.value))}
+          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.accent,padding:"0.28rem 0.5rem",fontSize:"0.72rem",fontFamily:"monospace",outline:"none"}}/>
+        <span style={{fontSize:"0.68rem",color:C.muted}}>ج.م</span>
+        {selAmount>0&&<span style={{fontSize:"0.68rem",color:C.green,whiteSpace:"nowrap"}}>= {fmtEGP(selAmount*selUsdRate)}</span>}
+      </div>}
+      <button onClick={addDeposit} style={{width:"100%",background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:8,color:C.accent,padding:"0.45rem",fontSize:"0.75rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+        ➕ Add to Fund
+      </button>
+    </div>
+  </div>);
+}
+
+// ── Goals Panel ───────────────────────────────────────────────
+function generateRecommendations(goal, rows, annualReturn, bigBoostTimeline, smallBoostTimeline, inflation, horizonMonths){
+  const recs=[];
+  const deadlineRow=rows[goal.deadlineAbsIdx];
+  const balanceAtDeadline=deadlineRow?deadlineRow.balance:0;
+  const gap=goal.target-balanceAtDeadline;
+  const hitIdx=rows.findIndex(r=>r.balance>=goal.target);
+  const monthsLeft=goal.deadlineAbsIdx;
+  const inflationFactor=Math.pow(1+inflation/100,monthsLeft/12);
+  const realValue=goal.target/inflationFactor;
+
+  // 1. When will you hit the goal?
+  if(hitIdx>=0){
+    const{year,month}=absToDate(hitIdx);
+    if(hitIdx<=goal.deadlineAbsIdx){
+      const monthsEarly=goal.deadlineAbsIdx-hitIdx;
+      recs.push({type:"success",icon:"🎯",text:`You'll hit this goal in ${MONTHS_EN[month]} ${year} — ${monthsEarly} month${monthsEarly!==1?"s":""} ahead of deadline!`});
+    } else {
+      const monthsLate=hitIdx-goal.deadlineAbsIdx;
+      recs.push({type:"warning",icon:"⏰",text:`At current pace you'll reach this in ${MONTHS_EN[month]} ${year} — ${monthsLate} month${monthsLate!==1?"s":""} after deadline.`});
+    }
+  } else {
+    recs.push({type:"danger",icon:"❌",text:`You won't reach ${fmtEGP(goal.target)} within your ${horizonMonths} month horizon at current settings.`});
+  }
+
+  // 2. Gap analysis
+  if(gap>0){
+    recs.push({type:"info",icon:"📊",text:`You need ${fmtEGP(gap)} more by your deadline. That's ${fmtEGP(gap/Math.max(monthsLeft,1))} extra per month on average.`});
+  }
+
+  // 3. Inflation note
+  recs.push({type:"info",icon:"📉",text:`In today's purchasing power, ${fmtEGP(goal.target)} is worth ${fmtEGP(realValue)} — inflation eats ${fmtEGP(goal.target-realValue)} over ${(monthsLeft/12).toFixed(1)} years.`});
+
+  // 4. Big circle boost recommendation
+  if(gap>0){
+    const currentBigBoost=getBoostAt(bigBoostTimeline,0);
+    const tryBoost=currentBigBoost+500;
+    // Simulate with extra boost: rough estimate — each 500 boost adds ~500*5=2500 per big payout, ~6 payouts/year
+    const extraPerYear=2500*6;
+    const extraTotal=extraPerYear*(monthsLeft/12);
+    if(extraTotal>0){
+      recs.push({type:"action",icon:"🔵",text:`Boosting Big Circle by ج.م 500/mo more from now adds ~${fmtEGP(extraTotal)} by deadline — closing ${Math.min(100,Math.round(extraTotal/Math.max(gap,1)*100))}% of the gap.`});
+    }
+  }
+
+  // 5. Small circle boost recommendation
+  if(gap>0){
+    const currentSmallBoost=getBoostAt(smallBoostTimeline,0);
+    if(currentSmallBoost<2000){
+      const tryBoost=Math.min(500,2000-currentSmallBoost);
+      const extraPerYear=tryBoost*5*6;
+      const extraTotal=extraPerYear*(monthsLeft/12);
+      recs.push({type:"action",icon:"🟢",text:`Boosting Small Circle by ج.م ${tryBoost}/mo more adds ~${fmtEGP(extraTotal)} by deadline — ${Math.min(100,Math.round(extraTotal/Math.max(gap,1)*100))}% of gap closed.`});
+    }
+  }
+
+  // 6. One-time deposit needed
+  if(gap>0&&hitIdx<0){
+    // How much lump sum needed now to hit goal?
+    const mRate=annualReturn/100/12;
+    const lumpNeeded=gap/Math.pow(1+mRate,monthsLeft);
+    recs.push({type:"action",icon:"💰",text:`A one-time deposit of ${fmtEGP(Math.round(lumpNeeded/1000)*1000)} today would close the gap completely by deadline.`});
+  }
+
+  // 7. USD circle impact
+  const usdPayoutsBeforeDeadline=rows.slice(0,goal.deadlineAbsIdx+1).filter(r=>r.usdIn>0);
+  if(usdPayoutsBeforeDeadline.length>0){
+    const totalUsd=usdPayoutsBeforeDeadline.reduce((s,r)=>s+r.usdIn,0);
+    recs.push({type:"info",icon:"💵",text:`Your USD circle contributes ${fmtEGP(totalUsd)} (${usdPayoutsBeforeDeadline.length} payout${usdPayoutsBeforeDeadline.length!==1?"s":""}) before your deadline — ${Math.round(totalUsd/Math.max(goal.target,1)*100)}% of goal.`});
+  }
+
+  return recs;
+}
+
+function GoalsPanel({rows,annualReturn,bigBoostTimeline,smallBoostTimeline,inflation,goals,onChange,horizonMonths}){
+  const[name,setName]=useState("");
+  const[target,setTarget]=useState(1000000);
+  const[deadlineAbsIdx,setDeadlineAbsIdx]=useState(23);
+  const[expanded,setExpanded]=useState(null);
+
+  const monthOptions=Array.from({length:horizonMonths},(_,i)=>{
+    const{year,month}=absToDate(i);
+    return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};
+  });
+
+  const addGoal=()=>{
+    if(!name.trim()||target<=0)return;
+    onChange([...goals,{id:Date.now(),name:name.trim(),target,deadlineAbsIdx}]);
+    setName("");setTarget(1000000);
+  };
+
+  const removeGoal=(id)=>onChange(goals.filter(g=>g.id!==id));
+
+  const getStatus=(goal)=>{
+    const deadlineRow=rows[goal.deadlineAbsIdx];
+    const bal=deadlineRow?deadlineRow.balance:0;
+    const pct=Math.min(100,bal/goal.target*100);
+    const hitIdx=rows.findIndex(r=>r.balance>=goal.target);
+    const onTrack=hitIdx>=0&&hitIdx<=goal.deadlineAbsIdx;
+    const willHit=hitIdx>=0;
+    return{pct,bal,onTrack,willHit,hitIdx};
+  };
+
+  const GOAL_ICONS=["🏠","🚗","💍","🎓","✈️","🏖️","💼","🏦","🎯","⭐"];
+  const[iconIdx,setIconIdx]=useState(0);
+
+  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden",marginBottom:"1rem"}}>
+    <div style={{padding:"1rem 1.1rem",borderBottom:`1px solid ${C.border}`}}>
+      <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>🎯 Goals & Recommendations</div>
+
+      {/* Existing goals */}
+      {goals.map(goal=>{
+        const{pct,bal,onTrack,willHit,hitIdx}=getStatus(goal);
+        const isOpen=expanded===goal.id;
+        const recs=isOpen?generateRecommendations(goal,rows,annualReturn,bigBoostTimeline,smallBoostTimeline,inflation,horizonMonths):[];
+        const statusColor=onTrack?C.green:willHit?C.accent:C.red;
+        const statusIcon=onTrack?"✅":willHit?"⚠️":"❌";
+        const{year:dY,month:dM}=absToDate(goal.deadlineAbsIdx);
+        return(<div key={goal.id} style={{marginBottom:"0.7rem",background:"#070b12",border:`1px solid ${statusColor}25`,borderRadius:12,overflow:"hidden"}}>
+          {/* Goal header */}
+          <div style={{padding:"0.8rem 1rem",cursor:"pointer"}} onClick={()=>setExpanded(isOpen?null:goal.id)}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.5rem"}}>
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flex:1,minWidth:0}}>
+                <span style={{fontSize:"1rem"}}>{statusIcon}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:"0.82rem",fontWeight:800,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{goal.name}</div>
+                  <div style={{fontSize:"0.63rem",color:C.muted}}>Target: {fmtEGP(goal.target)} · By {MONTHS_EN[dM]} {dY}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexShrink:0}}>
+                <span style={{fontSize:"0.72rem",color:statusColor,fontFamily:"monospace",fontWeight:700}}>{pct.toFixed(0)}%</span>
+                <button onClick={e=>{e.stopPropagation();removeGoal(goal.id);}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.75rem",padding:"0 0.15rem"}}>✕</button>
+                <span style={{fontSize:"0.7rem",color:C.muted}}>{isOpen?"▲":"▼"}</span>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div style={{height:6,background:C.border,borderRadius:99,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${statusColor},${statusColor}99)`,borderRadius:99,transition:"width 0.4s"}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
+              <span>{fmtEGP(bal)} at deadline</span>
+              <span>{fmtEGP(goal.target-bal>0?goal.target-bal:0)} remaining</span>
+            </div>
+          </div>
+
+          {/* Recommendations (expanded) */}
+          {isOpen&&(<div style={{borderTop:`1px solid ${C.border}20`,padding:"0.8rem 1rem"}}>
+            <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>💡 Recommendations</div>
+            {recs.map((r,i)=>{
+              const bg=r.type==="success"?`${C.green}10`:r.type==="warning"?`${C.accent}10`:r.type==="danger"?`${C.red}10`:r.type==="action"?`${C.blue}10`:`${C.border}`;
+              const border=r.type==="success"?`${C.green}30`:r.type==="warning"?`${C.accent}30`:r.type==="danger"?`${C.red}30`:r.type==="action"?`${C.blue}30`:`${C.border}`;
+              return(<div key={i} style={{display:"flex",gap:"0.5rem",background:bg,border:`1px solid ${border}`,borderRadius:8,padding:"0.5rem 0.7rem",marginBottom:"0.4rem",alignItems:"flex-start"}}>
+                <span style={{fontSize:"0.85rem",flexShrink:0,marginTop:"0.05rem"}}>{r.icon}</span>
+                <span style={{fontSize:"0.72rem",color:C.text,lineHeight:1.5}}>{r.text}</span>
+              </div>);
+            })}
+          </div>)}
+        </div>);
+      })}
+
+      {goals.length===0&&<div style={{fontSize:"0.72rem",color:C.muted,fontStyle:"italic",marginBottom:"0.8rem",textAlign:"center",padding:"0.5rem"}}>No goals yet — add one below</div>}
+    </div>
+
+    {/* Add new goal */}
+    <div style={{padding:"1rem 1.1rem",background:"rgba(255,255,255,0.01)"}}>
+      <div style={{fontSize:"0.68rem",color:C.sub,fontWeight:700,marginBottom:"0.7rem"}}>➕ Add New Goal</div>
+      <input value={name} onChange={e=>setName(e.target.value)} placeholder="Goal name (e.g. Buy apartment)"
+        style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.75rem",fontFamily:"inherit",outline:"none",marginBottom:"0.5rem"}}/>
+      <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.5rem"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:"0.62rem",color:C.muted,marginBottom:"0.2rem"}}>Target (ج.م)</div>
+          <input type="number" value={target} min={1000} step={10000} onChange={e=>setTarget(Number(e.target.value))}
+            style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.accent,padding:"0.35rem 0.5rem",fontSize:"0.75rem",fontFamily:"monospace",fontWeight:700,outline:"none"}}/>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:"0.62rem",color:C.muted,marginBottom:"0.2rem"}}>Deadline</div>
+          <select value={deadlineAbsIdx} onChange={e=>setDeadlineAbsIdx(Number(e.target.value))}
+            style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.4rem",fontSize:"0.72rem",fontFamily:"inherit"}}>
+            {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+          </select>
+        </div>
+      </div>
+      <button onClick={addGoal} style={{width:"100%",background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:8,color:C.accent,padding:"0.45rem",fontSize:"0.75rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+        🎯 Add Goal
+      </button>
+    </div>
+  </div>);
+}
+
+const ANTHROPIC_KEY="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";
+
+// ── AI Insights Panel ─────────────────────────────────────────
+const USER_PROFILE={
+  goal:"Grow wealth long term",
+  risk:"Moderate — some risk ok",
+  extraMonthly:"Up to ج.م 5,000",
+  currentInvestments:"Fixed income fund (Thndr), EGP & USD gam3eya circles",
+  openTo:"EGX stocks, gold, real estate, banking sector",
+  currency:"EGP",
+};
+
+function InsightsPanel({fundBalance,annualReturn,usdRate}){
+  const[insights,setInsights]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[lastUpdated,setLastUpdated]=useState(null);
+  const[expandedCard,setExpandedCard]=useState(null);
+
+  const fetchInsights=async()=>{
+    setLoading(true);setError("");setInsights(null);
+    const prompt=`You are a financial advisor specializing in the Egyptian market. The user has the following investment profile:
+
+- Current fund balance: ${Math.round(fundBalance).toLocaleString()} EGP
+- Current fund annual return: ${annualReturn}%
+- Current USD/EGP rate: ${usdRate}
+- Current investments: ${USER_PROFILE.currentInvestments}
+- Goal: ${USER_PROFILE.goal}
+- Risk tolerance: ${USER_PROFILE.risk}
+- Extra monthly capacity: ${USER_PROFILE.extraMonthly}
+- Open to: ${USER_PROFILE.openTo}
+
+Search for the latest data on:
+1. Current EGX30 top performing stocks and any standout opportunities
+2. Gold price in EGP and outlook
+3. Egyptian banking sector stocks (CIB, QNB, Abu Dhabi Islamic Bank Egypt etc)
+4. Real estate investment opportunities in Egypt (REITs or direct)
+5. Any other high-potential Egyptian market opportunities right now
+6. Current CBE interest rate and outlook for fixed income funds
+
+Then respond ONLY with a valid JSON object (no markdown, no backticks, no extra text) in this exact format:
+{
+  "summary": "2-3 sentence overall market summary for Egypt right now",
+  "lastUpdated": "today's date",
+  "opportunities": [
+    {
+      "id": "unique_id",
+      "category": "Stocks|Gold|Real Estate|Fixed Income|Currency",
+      "icon": "single emoji",
+      "title": "opportunity name",
+      "ticker": "ticker if applicable or null",
+      "currentPrice": "current price or value in EGP if available",
+      "signal": "BUY|WATCH|HOLD|AVOID",
+      "signalReason": "one sentence why",
+      "potential": "estimated upside % or qualitative (e.g. High/Medium/Low)",
+      "timeframe": "short/medium/long term",
+      "risk": "Low|Medium|High",
+      "howToInvest": "practical step for this user (e.g. via Thndr app)",
+      "keyPoints": ["point 1", "point 2", "point 3"],
+      "warning": "one risk to be aware of or null"
+    }
+  ],
+  "portfolioSuggestion": "specific allocation suggestion for this user based on their profile",
+  "disclaimer": "short disclaimer"
+}`;
+
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":ANTHROPIC_KEY,
+          "anthropic-version":"2023-06-01",
+          "anthropic-beta":"interleaved-thinking-2025-05-14"
+        },
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:4000,
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const data=await res.json();
+      if(data.error){throw new Error(data.error.message||"API error");}
+      const text=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      const clean=text.replace(/```json|```/g,"").trim();
+      const parsed=JSON.parse(clean);
+      setInsights(parsed);
+      setLastUpdated(new Date().toLocaleString());
+    }catch(e){
+      setError("Error: "+e.message+". Please try again.");
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  const signalColor=(s)=>({BUY:C.green,WATCH:C.accent,HOLD:C.blue,AVOID:C.red}[s]||C.muted);
+  const signalBg=(s)=>({BUY:`${C.green}18`,WATCH:`${C.accent}18`,HOLD:`${C.blue}18`,AVOID:`${C.red}18`}[s]||"transparent");
+  const riskColor=(r)=>({Low:C.green,Medium:C.accent,High:C.red}[r]||C.muted);
+
+  return(<div style={{padding:"1rem"}}>
+
+    {/* Header */}
+    <div style={{background:"#070b12",border:`1px solid ${C.border}`,borderRadius:14,padding:"1.1rem",marginBottom:"0.9rem"}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"1rem",flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:"0.88rem",fontWeight:800,color:C.text,marginBottom:"0.3rem"}}>🤖 AI Market Insights</div>
+          <div style={{fontSize:"0.7rem",color:C.sub,lineHeight:1.6,maxWidth:400}}>
+            Powered by Claude with live web search. Analyzes the Egyptian market in real time and gives you personalized opportunities based on your profile.
+          </div>
+          {lastUpdated&&<div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.4rem"}}>Last updated: {lastUpdated}</div>}
+        </div>
+        <button onClick={fetchInsights} disabled={loading}
+          style={{background:loading?C.border:`linear-gradient(135deg,${C.accent},#e67e22)`,border:"none",borderRadius:10,color:loading?C.muted:"#000",padding:"0.6rem 1.2rem",fontSize:"0.78rem",cursor:loading?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:800,flexShrink:0,display:"flex",alignItems:"center",gap:"0.4rem"}}>
+          {loading?"⟳ Analyzing...":"🔍 Get Live Insights"}
+        </button>
+      </div>
+
+      {/* User profile badge */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:"0.4rem",marginTop:"0.9rem"}}>
+        {[["🎯",USER_PROFILE.goal],[" 📊",USER_PROFILE.risk],["💰",USER_PROFILE.extraMonthly+"/mo extra"]].map(([ic,label])=>(
+          <span key={label} style={{fontSize:"0.65rem",background:`${C.blue}12`,border:`1px solid ${C.blue}25`,borderRadius:6,padding:"0.2rem 0.55rem",color:C.sub}}>{ic} {label}</span>
+        ))}
+      </div>
+    </div>
+
+    {/* Loading state */}
+    {loading&&(<div style={{textAlign:"center",padding:"3rem 1rem"}}>
+      <div style={{fontSize:"2rem",marginBottom:"0.8rem",animation:"ping 1.5s infinite",display:"inline-block"}}>📡</div>
+      <div style={{fontSize:"0.82rem",color:C.sub,marginBottom:"0.4rem"}}>Searching live Egyptian market data…</div>
+      <div style={{fontSize:"0.7rem",color:C.muted}}>Checking EGX, gold prices, CBE rates & more</div>
+    </div>)}
+
+    {/* Error */}
+    {error&&(<div style={{background:`${C.red}12`,border:`1px solid ${C.red}30`,borderRadius:12,padding:"1rem",fontSize:"0.78rem",color:C.red}}>⚠️ {error}</div>)}
+
+    {/* Results */}
+    {insights&&!loading&&(<>
+
+      {/* Market summary */}
+      <div style={{background:`${C.blue}0d`,border:`1px solid ${C.blue}25`,borderRadius:12,padding:"0.9rem 1.1rem",marginBottom:"0.9rem"}}>
+        <div style={{fontSize:"0.65rem",color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.4rem"}}>📰 Market Summary</div>
+        <div style={{fontSize:"0.78rem",color:C.text,lineHeight:1.7}}>{insights.summary}</div>
+      </div>
+
+      {/* Opportunity cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:"0.7rem",marginBottom:"0.9rem"}}>
+        {(insights.opportunities||[]).map((op,i)=>{
+          const expanded=expandedCard===op.id;
+          return(<div key={op.id} style={{background:"#070b12",border:`1px solid ${signalColor(op.signal)}30`,borderRadius:13,overflow:"hidden",cursor:"pointer",transition:"all 0.2s"}}
+            onClick={()=>setExpandedCard(expanded?null:op.id)}>
+            {/* Card header */}
+            <div style={{padding:"0.9rem 1rem"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.5rem"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+                  <span style={{fontSize:"1.3rem"}}>{op.icon}</span>
+                  <div>
+                    <div style={{fontSize:"0.78rem",fontWeight:800,color:C.text}}>{op.title}</div>
+                    {op.ticker&&<div style={{fontSize:"0.62rem",color:C.muted,fontFamily:"monospace"}}>{op.ticker}</div>}
+                  </div>
+                </div>
+                <span style={{fontSize:"0.7rem",fontWeight:800,background:signalBg(op.signal),border:`1px solid ${signalColor(op.signal)}40`,borderRadius:6,padding:"0.2rem 0.55rem",color:signalColor(op.signal)}}>
+                  {op.signal}
+                </span>
+              </div>
+
+              {/* Price & potential */}
+              <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"0.5rem"}}>
+                {op.currentPrice&&<span style={{fontSize:"0.68rem",background:`${C.border}`,borderRadius:5,padding:"0.15rem 0.45rem",color:C.sub,fontFamily:"monospace"}}>{op.currentPrice}</span>}
+                <span style={{fontSize:"0.68rem",background:`${C.green}12`,borderRadius:5,padding:"0.15rem 0.45rem",color:C.green}}>↑ {op.potential}</span>
+                <span style={{fontSize:"0.68rem",background:`${riskColor(op.risk)}12`,borderRadius:5,padding:"0.15rem 0.45rem",color:riskColor(op.risk)}}>Risk: {op.risk}</span>
+                <span style={{fontSize:"0.68rem",color:C.muted,padding:"0.15rem 0"}}>{op.timeframe}</span>
+              </div>
+
+              <div style={{fontSize:"0.72rem",color:C.sub,lineHeight:1.5}}>{op.signalReason}</div>
+            </div>
+
+            {/* Expanded details */}
+            {expanded&&(<div style={{borderTop:`1px solid ${C.border}`,padding:"0.9rem 1rem",background:"rgba(0,0,0,0.2)"}}>
+              {op.keyPoints&&op.keyPoints.length>0&&(<div style={{marginBottom:"0.7rem"}}>
+                <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.4rem"}}>Key Points</div>
+                {op.keyPoints.map((p,j)=>(<div key={j} style={{display:"flex",gap:"0.4rem",fontSize:"0.72rem",color:C.text,marginBottom:"0.3rem",lineHeight:1.5}}>
+                  <span style={{color:C.green,flexShrink:0}}>•</span><span>{p}</span>
+                </div>))}
+              </div>)}
+              <div style={{background:`${C.teal}0d`,border:`1px solid ${C.teal}25`,borderRadius:8,padding:"0.6rem 0.8rem",marginBottom:"0.5rem"}}>
+                <div style={{fontSize:"0.62rem",color:C.teal,marginBottom:"0.2rem"}}>HOW TO INVEST</div>
+                <div style={{fontSize:"0.72rem",color:C.text}}>{op.howToInvest}</div>
+              </div>
+              {op.warning&&(<div style={{background:`${C.red}0d`,border:`1px solid ${C.red}25`,borderRadius:8,padding:"0.6rem 0.8rem"}}>
+                <div style={{fontSize:"0.62rem",color:C.red,marginBottom:"0.2rem"}}>⚠️ RISK TO WATCH</div>
+                <div style={{fontSize:"0.72rem",color:C.sub}}>{op.warning}</div>
+              </div>)}
+            </div>)}
+
+            <div style={{padding:"0.4rem 1rem",fontSize:"0.6rem",color:C.muted,borderTop:`1px solid ${C.border}20`,textAlign:"center"}}>
+              {expanded?"▲ tap to collapse":"▼ tap for details"}
+            </div>
+          </div>);
+        })}
+      </div>
+
+      {/* Portfolio suggestion */}
+      <div style={{background:`${C.accent}0d`,border:`1px solid ${C.accent}25`,borderRadius:12,padding:"0.9rem 1.1rem",marginBottom:"0.7rem"}}>
+        <div style={{fontSize:"0.65rem",color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.4rem"}}>💼 Suggested Allocation For You</div>
+        <div style={{fontSize:"0.78rem",color:C.text,lineHeight:1.7}}>{insights.portfolioSuggestion}</div>
+      </div>
+
+      {/* Disclaimer */}
+      <div style={{fontSize:"0.62rem",color:C.muted,textAlign:"center",lineHeight:1.6,padding:"0 0.5rem"}}>
+        ⚠️ {insights.disclaimer}
+      </div>
+    </>)}
+
+    {/* Empty state */}
+    {!insights&&!loading&&!error&&(<div style={{textAlign:"center",padding:"3rem 1rem"}}>
+      <div style={{fontSize:"2.5rem",marginBottom:"0.8rem"}}>📡</div>
+      <div style={{fontSize:"0.82rem",color:C.sub,marginBottom:"0.4rem"}}>No insights yet</div>
+      <div style={{fontSize:"0.7rem",color:C.muted}}>Hit "Get Live Insights" to analyze the Egyptian market right now</div>
+    </div>)}
+  </div>);
+}
+
+
+// ── Supabase Cloud Sync ───────────────────────────────────────
+const SUPABASE_URL="https://glaivqzhjqtfskjzxhub.supabase.co";
+const SUPABASE_KEY="sb_publishable_WZlvwO_HnP9TNR4yOoxXAQ_oXSM_j8f";
+const USER_ID="main_user"; // single user app
+
+// Fallback localStorage key
+const STORAGE_KEY="inv_calc_v1";
+
+async function cloudLoad(){
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/settings?user_id=eq.${USER_ID}&select=data`,{
+      headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}
+    });
+    const rows=await res.json();
+    if(rows&&rows.length>0&&rows[0].data)return rows[0].data;
+  }catch(e){console.warn("Cloud load failed, using local",e);}
+  return null;
+}
+
+async function cloudSave(state){
+  try{
+    await fetch(`${SUPABASE_URL}/rest/v1/settings`,{
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_KEY,
+        "Authorization":`Bearer ${SUPABASE_KEY}`,
+        "Content-Type":"application/json",
+        "Prefer":"resolution=merge-duplicates"
+      },
+      body:JSON.stringify({user_id:USER_ID,data:state,updated_at:new Date().toISOString()})
+    });
+  }catch(e){console.warn("Cloud save failed",e);}
+  // Always save locally as fallback
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch{}
+}
+
+function loadLocalState(){
+  try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):null;}catch{return null;}
+}
+
+function App(){
+  const local=loadLocalState()||{};
+  const[annualReturn,setAnnualReturn]=useState(local.annualReturn||21);
+  const[inflation,setInflation]=useState(local.inflation||25);
+  const[usdRate,setUsdRate]=useState(local.usdRate||49);
+  const[usdLoading,setUsdLoading]=useState(false);
+  const[usdSource,setUsdSource]=useState("manual");
+  const[horizon,setHorizon]=useState(local.horizon||36);
+  const[activeTab,setActiveTab]=useState("calendar");
+  const[bigBoostTimeline,setBigBoostTimeline]=useState(local.bigBoostTimeline||[]);
+  const[smallBoostTimeline,setSmallBoostTimeline]=useState(local.smallBoostTimeline||[]);
+  const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
+  const[initialFund,setInitialFund]=useState(local.initialFund||40000);
+  const[fundInput,setFundInput]=useState(String(local.initialFund||40000));
+  const[goals,setGoals]=useState(local.goals||[]);
+  const[savedMsg,setSavedMsg]=useState("⟳ Loading...");
+  const[syncStatus,setSyncStatus]=useState("loading"); // loading|synced|local|error
+  const saveTimer=React.useRef(null);
+
+  // On mount: load from cloud first, override local state
+  useEffect(()=>{
+    cloudLoad().then(data=>{
+      if(data){
+        if(data.annualReturn)setAnnualReturn(data.annualReturn);
+        if(data.inflation)setInflation(data.inflation);
+        if(data.usdRate)setUsdRate(data.usdRate);
+        if(data.horizon)setHorizon(data.horizon);
+        if(data.bigBoostTimeline)setBigBoostTimeline(data.bigBoostTimeline);
+        if(data.smallBoostTimeline)setSmallBoostTimeline(data.smallBoostTimeline);
+        if(data.manualDeposits)setManualDeposits(data.manualDeposits);
+        if(data.initialFund){setInitialFund(data.initialFund);setFundInput(String(data.initialFund));}
+        if(data.goals)setGoals(data.goals);
+        if(data.joined)localStorage.setItem("inv_joined",JSON.stringify(data.joined));
+        setSyncStatus("synced");
+        setSavedMsg("☁️ Loaded from cloud");
+        setTimeout(()=>setSavedMsg(""),3000);
+      } else {
+        setSyncStatus("local");
+        setSavedMsg("");
+      }
+    }).catch(()=>{setSyncStatus("error");setSavedMsg("");});
+  },[]);
+
+  // Debounced auto-save to cloud on any change
+  useEffect(()=>{
+    if(syncStatus==="loading")return;
+    if(saveTimer.current)clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(async()=>{
+      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,manualDeposits,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
+      setSavedMsg("⟳ Saving...");
+      await cloudSave(state);
+      setSyncStatus("synced");
+      setSavedMsg("☁️ Synced");
+      setTimeout(()=>setSavedMsg(""),2500);
+    },1200);
+    return()=>{if(saveTimer.current)clearTimeout(saveTimer.current);};
+  },[annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,manualDeposits,initialFund,goals]);
+
+  // Fetch live USD/EGP from free public API
+  const fetchRate=useCallback(async()=>{
+    setUsdLoading(true);
+    try{
+      // Try exchangerate-api (free, no key needed for this endpoint)
+      const res=await fetch("https://api.exchangerate-api.com/v4/latest/USD");
+      const data=await res.json();
+      if(data.rates&&data.rates.EGP){
+        setUsdRate(parseFloat(data.rates.EGP.toFixed(2)));
+        setUsdSource("live");
+      }
+    }catch{
+      // Fallback: try another free API
+      try{
+        const res2=await fetch("https://open.er-api.com/v6/latest/USD");
+        const data2=await res2.json();
+        if(data2.rates&&data2.rates.EGP){
+          setUsdRate(parseFloat(data2.rates.EGP.toFixed(2)));
+          setUsdSource("live");
+        }
+      }catch(e){console.error("Rate fetch failed",e);}
+    }
+    setUsdLoading(false);
+  },[]);
+
+  useEffect(()=>{fetchRate();},[]);
+
+  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits,horizon]);
+  const last=rows[rows.length-1]||{};
+  const uniqueYears=[...new Set(rows.map(r=>r.year))];
+
+  // ── Export settings as JSON file ──
+  const exportSettings=()=>{
+    const data={
+      version:1,
+      exportedAt:new Date().toISOString(),
+      annualReturn,inflation,usdRate,horizon,
+      bigBoostTimeline,smallBoostTimeline,
+      manualDeposits,initialFund,goals,
+      joined:JSON.parse(localStorage.getItem("inv_joined")||"[]"),
+    };
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`investment-settings-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Import settings from JSON file ──
+  const importSettings=()=>{
+    const input=document.createElement("input");
+    input.type="file";
+    input.accept=".json";
+    input.onchange=(e)=>{
+      const file=e.target.files[0];
+      if(!file)return;
+      const reader=new FileReader();
+      reader.onload=(ev)=>{
+        try{
+          const data=JSON.parse(ev.target.result);
+          if(data.annualReturn)setAnnualReturn(data.annualReturn);
+          if(data.inflation)setInflation(data.inflation);
+          if(data.usdRate)setUsdRate(data.usdRate);
+          if(data.horizon)setHorizon(data.horizon);
+          if(data.bigBoostTimeline)setBigBoostTimeline(data.bigBoostTimeline);
+          if(data.smallBoostTimeline)setSmallBoostTimeline(data.smallBoostTimeline);
+          if(data.manualDeposits)setManualDeposits(data.manualDeposits);
+          if(data.initialFund){setInitialFund(data.initialFund);setFundInput(String(data.initialFund));}
+          if(data.goals)setGoals(data.goals);
+          if(data.joined)localStorage.setItem("inv_joined",JSON.stringify(data.joined));
+          setSavedMsg("✓ Imported!");
+        }catch{alert("Invalid file — please use a previously exported settings file.");}
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  const tabStyle=(t)=>({padding:"0.5rem 0.8rem",fontSize:"0.73rem",cursor:"pointer",border:"none",background:"transparent",fontFamily:"inherit",color:activeTab===t?C.accent:C.muted,borderBottom:activeTab===t?`2px solid ${C.accent}`:"2px solid transparent",fontWeight:activeTab===t?700:400,marginBottom:-1,transition:"all 0.2s",whiteSpace:"nowrap"});
+
+  return(<>
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Tajawal',sans-serif",color:C.text,padding:"1rem 0.7rem"}}>
+      <div style={{maxWidth:1040,margin:"0 auto"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.1rem",flexWrap:"wrap",gap:"0.7rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.75rem"}}>
+            <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(135deg,${C.accent},#e67e22)`,display:"grid",placeItems:"center",fontSize:"1.25rem",flexShrink:0}}>📊</div>
+            <div>
+              <h1 style={{fontSize:"1.15rem",fontWeight:900,letterSpacing:"-0.02em"}}>حاسبة الاستثمار</h1>
+              <p style={{fontSize:"0.65rem",color:C.sub}}>Fixed Income · EGP & USD Circles</p>
+            </div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"0.5rem",justifyContent:"flex-end",marginBottom:"0.2rem"}}>
+              {savedMsg&&<span style={{fontSize:"0.62rem",color:syncStatus==="synced"?C.green:syncStatus==="error"?C.red:C.accent,fontWeight:700}}>{savedMsg}</span>}
+              {!savedMsg&&syncStatus==="synced"&&<span style={{fontSize:"0.62rem",color:C.green}}>☁️ Synced</span>}
+              {!savedMsg&&syncStatus==="error"&&<span style={{fontSize:"0.62rem",color:C.red}}>⚠️ Offline</span>}
+              <button onClick={exportSettings}
+                style={{fontSize:"0.6rem",color:C.blue,background:`${C.blue}12`,border:`1px solid ${C.blue}35`,borderRadius:5,padding:"0.15rem 0.5rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                ⬇ Export
+              </button>
+              <button onClick={importSettings}
+                style={{fontSize:"0.6rem",color:C.accent,background:`${C.accent}12`,border:`1px solid ${C.accent}35`,borderRadius:5,padding:"0.15rem 0.5rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                ⬆ Import
+              </button>
+              <button onClick={()=>{if(window.confirm("Reset all settings to defaults?")){localStorage.removeItem(STORAGE_KEY);window.location.reload();}}}
+                style={{fontSize:"0.6rem",color:C.muted,background:"none",border:`1px solid ${C.border}`,borderRadius:5,padding:"0.15rem 0.4rem",cursor:"pointer",fontFamily:"inherit"}}>
+                🗑 Reset
+              </button>
+            </div>
+            <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.1rem"}}>{usdSource==="live"?"🟢 Live":"🔵 Manual"}</div>
+            <div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}>
+              <span style={{fontFamily:"monospace",fontSize:"0.9rem",fontWeight:700,color:C.accent}}>{usdLoading?"fetching…":`$1 = ج.م ${usdRate}`}</span>
+              <button onClick={fetchRate} style={{background:`${C.accent}15`,border:`1px solid ${C.accent}35`,borderRadius:6,padding:"0.18rem 0.4rem",cursor:"pointer",fontSize:"0.68rem",color:C.accent,fontFamily:"inherit"}}>{usdLoading?"⟳":"↻"}</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stat cards */}
+        <div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.6rem",marginBottom:"0.9rem"}}>
+          <StatCard label="Final Value" value={fmtEGP(last.balance||initialFund)} sub={`${horizon} months`} color={C.accent} icon="💰"/>
+          <StatCard label="Real Value" value={fmtEGP(last.realValue||initialFund)} sub="Inflation-adj." color={C.purple} icon="📉"/>
+          <StatCard label="Deposited" value={fmtEGP(last.totalDeposited||initialFund)} sub="All + initial" color={C.blue} icon="📥"/>
+          <StatCard label="Fund Gain" value={fmtEGP(last.gain||0)} sub={`At ${annualReturn}%`} color={C.green} icon="📈"/>
+        </div>
+
+        {/* Sparklines */}
+        <div className="spark-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.6rem",marginBottom:"0.9rem"}}>
+          {[{label:"Nominal Growth",data:rows.map(r=>r.balance),color:C.accent},{label:"Real Value",data:rows.map(r=>r.realValue),color:C.purple}].map(s=>(
+            <div key={s.label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:11,padding:"0.7rem 0.9rem"}}>
+              <div style={{fontSize:"0.65rem",color:C.muted,marginBottom:"0.25rem"}}>{s.label}</div>
+              <Sparkline data={s.data} color={s.color}/>
+            </div>
+          ))}
+        </div>
+
+        {/* Main layout */}
+        <div className="main-grid" style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:"0.9rem",alignItems:"start"}}>
+
+          {/* LEFT */}
+          <div style={{display:"flex",flexDirection:"column",gap:"0.8rem"}}>
+            <AlertPanel horizonMonths={horizon}/>
+
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
+              <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>⚙️ Fund Settings</div>
+              {/* Editable balance */}
+              <div style={{marginBottom:"1.1rem"}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.3rem"}}>
+                  <span style={{fontSize:"0.73rem",color:C.sub}}>Current Fund Balance</span>
+                  <span style={{fontSize:"0.62rem",color:C.muted}}>ج.م</span>
+                </div>
+                <div style={{position:"relative"}}>
+                  <input type="number" value={fundInput}
+                    onChange={e=>{setFundInput(e.target.value);const v=parseFloat(e.target.value);if(!isNaN(v)&&v>=0)setInitialFund(v);}}
+                    onBlur={()=>setFundInput(initialFund.toString())}
+                    style={{width:"100%",background:"#070b12",border:`1px solid ${C.accent}50`,borderRadius:8,color:C.accent,padding:"0.45rem 2.5rem 0.45rem 0.6rem",fontSize:"1rem",fontFamily:"monospace",fontWeight:700,outline:"none"}}/>
+                  <span style={{position:"absolute",right:"0.6rem",top:"50%",transform:"translateY(-50%)",fontSize:"0.68rem",color:C.muted,pointerEvents:"none"}}>ج.م</span>
+                </div>
+                <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>Edit to match your actual fund balance</div>
+              </div>
+              <Slider label="Annual Return" value={annualReturn} min={18} max={28} step={0.5} onChange={setAnnualReturn} fmt={v=>`${v}%`} color={C.green}/>
+              <Slider label="Egyptian Inflation" value={inflation} min={10} max={40} step={0.5} onChange={setInflation} fmt={v=>`${v}%`} color={C.red}/>
+              <Slider label="USD/EGP Rate" value={usdRate} min={40} max={80} step={0.25} onChange={v=>{setUsdRate(v);setUsdSource("manual");}} fmt={v=>`${v} ج.م`} color={C.accent}/>
+              <Slider label="Horizon" value={horizon} min={6} max={60} step={1} onChange={setHorizon} fmt={v=>`${v} months`} color={C.blue}/>
+            </div>
+
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
+              <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.5rem"}}>💡 Boost from Fund Returns</div>
+              <div style={{fontSize:"0.68rem",color:C.sub,marginBottom:"0.9rem",lineHeight:1.6}}>Pick a month to start pulling from fund returns to boost circles. Continues until changed.</div>
+              <BoostTimeline label="🔵 Big EGP Circle" color={C.blue} timeline={bigBoostTimeline} onChange={setBigBoostTimeline} maxBoost={6000} horizonMonths={horizon}/>
+              <BoostTimeline label="🟢 Small EGP Circle" color={C.green} timeline={smallBoostTimeline} onChange={setSmallBoostTimeline} maxBoost={2000} horizonMonths={horizon}/>
+            </div>
+
+            <ManualDepositsPanel deposits={manualDeposits} onChange={setManualDeposits} horizonMonths={horizon}/>
+          </div>
+
+          {/* RIGHT */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
+            <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,padding:"0 0.6rem",overflowX:"auto"}}>
+              {[["calendar","📅 Monthly"],["cashflow","💸 Cash Flow"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
+                <button key={t} style={tabStyle(t)} onClick={()=>setActiveTab(t)}>{l}</button>
+              ))}
+            </div>
+
+            {/* Monthly Calendar */}
+            {activeTab==="calendar"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
+              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
+                <span>Month</span><span>Payouts → Fund</span><span style={{textAlign:"right"}}>Balance</span>
+              </div>
+              {rows.map((r,i)=>{
+                const has=r.bigPayout>0||r.smallPayout>0||r.usdIn>0||r.manualIn>0;
+                return(<div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",borderBottom:`1px solid ${C.border}15`,alignItems:"center",background:has?"rgba(255,255,255,0.012)":"transparent",transition:"background 0.15s"}}>
+                  <div>
+                    <div style={{fontSize:"0.78rem",fontWeight:has?700:400,color:has?C.text:C.muted}}>{MONTHS_EN[r.month]}</div>
+                    <div style={{fontSize:"0.6rem",color:C.muted}}>{r.year}</div>
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem"}}>
+                    {r.bigPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.blue}12`,border:`1px solid ${C.blue}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.blue}}>🔵 {fmtEGP(r.bigPayout)}</span>}
+                    {r.smallPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.green}12`,border:`1px solid ${C.green}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.green}}>🟢 {fmtEGP(r.smallPayout)}</span>}
+                    {r.usdIn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💵 {fmtEGP(r.usdIn)}</span>}
+                    {r.manualIn>0&&<span style={{fontSize:"0.65rem",background:`${C.teal}12`,border:`1px solid ${C.teal}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.teal}}>➕ {fmtEGP(r.manualIn)}</span>}
+                    {!has&&<span style={{fontSize:"0.65rem",color:C.muted}}>—</span>}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:"0.78rem",fontFamily:"monospace",fontWeight:700,color:C.accent}}>{fmtEGP(r.balance)}</div>
+                    <div style={{fontSize:"0.58rem",color:C.muted}}>+{fmtEGP(r.returnAmt)}</div>
+                  </div>
+                </div>);
+              })}
+            </div>)}
+
+            {/* Cash Flow */}
+            {activeTab==="cashflow"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
+              <div style={{display:"grid",gridTemplateColumns:"80px 90px 90px 90px 90px 90px",gap:"0.2rem",padding:"0.45rem 0.9rem",fontSize:"0.58rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
+                <span>Month</span><span style={{textAlign:"right"}}>Big Out</span><span style={{textAlign:"right"}}>Small Out</span><span style={{textAlign:"right"}}>Total Out</span><span style={{textAlign:"right"}}>In</span><span style={{textAlign:"right"}}>Net</span>
+              </div>
+              {rows.map((r,i)=>{
+                const out=r.bigWage+r.smallWage,tin=r.bigPayout+r.smallPayout+r.usdIn+r.manualIn,net=tin-out;
+                return(<div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"80px 90px 90px 90px 90px 90px",gap:"0.2rem",padding:"0.4rem 0.9rem",borderBottom:`1px solid ${C.border}12`,alignItems:"center",transition:"background 0.15s"}}>
+                  <div><div style={{fontSize:"0.76rem",fontWeight:600,color:C.text}}>{MONTHS_EN[r.month]}</div><div style={{fontSize:"0.58rem",color:C.muted}}>{r.year}</div></div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.bigWage>0?C.blue:C.muted}}>{r.bigWage>0?fmtEGP(r.bigWage):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.smallWage>0?C.teal:C.muted}}>{r.smallWage>0?fmtEGP(r.smallWage):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:out>0?C.red:C.muted,fontWeight:700}}>{out>0?fmtEGP(out):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:tin>0?C.green:C.muted,fontWeight:700}}>{tin>0?fmtEGP(tin):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.72rem",color:net>0?C.green:net<0?C.red:C.muted,fontWeight:800}}>{net===0?"—":`${net>0?"+":""}${fmtEGP(net)}`}</div>
+                </div>);
+              })}
+            </div>)}
+
+            {/* Income Source */}
+            {activeTab==="income"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
+              <div style={{display:"flex",gap:"1rem",padding:"0.55rem 0.9rem",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                <span style={{fontSize:"0.67rem",color:C.blue}}>💼 From wages</span>
+                <span style={{fontSize:"0.67rem",color:C.green}}>📈 From fund (boost)</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"80px repeat(4,1fr)",gap:"0.2rem",padding:"0.4rem 0.9rem",fontSize:"0.58rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
+                <span>Month</span><span style={{textAlign:"right"}}>💼 Big</span><span style={{textAlign:"right"}}>📈 Big</span><span style={{textAlign:"right"}}>💼 Small</span><span style={{textAlign:"right"}}>📈 Small</span>
+              </div>
+              {rows.map((r,i)=>(
+                <div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"80px repeat(4,1fr)",gap:"0.2rem",padding:"0.38rem 0.9rem",borderBottom:`1px solid ${C.border}10`,alignItems:"center",transition:"background 0.15s"}}>
+                  <div><div style={{fontSize:"0.75rem",fontWeight:600,color:C.text}}>{MONTHS_EN[r.month]}</div><div style={{fontSize:"0.58rem",color:C.muted}}>{r.year}</div></div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.bigWage>0?C.blue:C.muted}}>{r.bigWage>0?fmtEGP(r.bigWage):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.bigFund>0?C.green:C.muted}}>{r.bigFund>0?fmtEGP(r.bigFund):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.smallWage>0?C.blue:C.muted}}>{r.smallWage>0?fmtEGP(r.smallWage):"—"}</div>
+                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.smallFund>0?C.green:C.muted}}>{r.smallFund>0?fmtEGP(r.smallFund):"—"}</div>
+                </div>
+              ))}
+            </div>)}
+
+            {/* Yearly */}
+            {activeTab==="yearly"&&(<div style={{padding:"0.9rem",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:"0.65rem",maxHeight:560,overflowY:"auto"}}>
+              {uniqueYears.map((yr,i)=>{
+                const yR=rows.filter(r=>r.year===yr);
+                const lR=yR[yR.length-1];
+                return(<div key={yr} style={{background:"#070b12",border:`1px solid ${C.border}`,borderRadius:12,padding:"0.9rem 1rem",animation:`fadeUp 0.4s ease both`,animationDelay:`${i*40}ms`}}>
+                  <div style={{fontSize:"1rem",fontWeight:900,color:C.accent,marginBottom:"0.45rem"}}>{yr}</div>
+                  <div style={{fontSize:"0.65rem",color:C.muted}}>End Balance</div>
+                  <div style={{fontSize:"1.05rem",fontWeight:800,fontFamily:"monospace",color:C.text,marginBottom:"0.55rem"}}>{fmtEGP(lR.balance)}</div>
+                  {[["Payouts in",fmtEGP(yR.reduce((s,r)=>s+r.totalIn,0)),C.blue],["Returns",fmtEGP(yR.reduce((s,r)=>s+r.returnAmt,0)),C.green],["Wages",fmtEGP(yR.reduce((s,r)=>s+r.bigWage+r.smallWage,0)),C.red],["Boost used",fmtEGP(yR.reduce((s,r)=>s+r.totalFundDrain,0)),C.purple],["Real value",fmtEGP(lR.realValue),C.sub]].map(([k,v,c])=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:"0.67rem",padding:"0.18rem 0",borderTop:`1px solid ${C.border}20`}}>
+                      <span style={{color:C.muted}}>{k}</span><span style={{color:c,fontFamily:"monospace",fontWeight:600}}>{v}</span>
+                    </div>
+                  ))}
+                </div>);
+              })}
+            </div>)}
+
+            {/* Circles */}
+            {activeTab==="circles"&&(<div style={{padding:"0.9rem",maxHeight:560,overflowY:"auto"}}>
+              {[
+                {title:"🔵 Big EGP Circle",color:C.blue,rows:[["Duration","6 months"],["Contribution","ج.م 2,000/mo"],["Slot","4th"],["Payout formula","Contribution × 5"],["Base payout","ج.م 10,000"],["Schedule","May·Jul·Sep·Nov·Jan·Mar"]]},
+                {title:"🟢 Small EGP Circle",color:C.green,rows:[["Duration","6 months"],["Contribution","ج.م 1,000/mo"],["Slot","4th"],["Payout formula","Contribution × 5"],["Base payout","ج.م 5,000"],["Starts","May 2026"],["Schedule","Aug·Oct·Dec·Feb·Apr·Jun"]]},
+                {title:"💵 USD Circle",color:C.accent,rows:[["Duration","10 months"],["Contribution","$200/mo"],["Payout",`$2,000 = ${fmtEGP(2000*usdRate)}`],["Circle 1","Jun 2026 (last slot)"],["Circle 2","Jul 2026 (first slot)"],["Pattern","Alternating first/last"]]},
+              ].map(circle=>(<div key={circle.title} style={{background:"#070b12",border:`1px solid ${circle.color}22`,borderRadius:12,padding:"0.9rem 1.1rem",marginBottom:"0.65rem"}}>
+                <div style={{fontWeight:800,fontSize:"0.88rem",color:circle.color,marginBottom:"0.65rem"}}>{circle.title}</div>
+                {circle.rows.map(([k,v])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:"0.72rem",padding:"0.25rem 0",borderTop:`1px solid ${C.border}20`,gap:"0.8rem"}}>
+                  <span style={{color:C.muted,flexShrink:0}}>{k}</span><span style={{color:C.text,fontWeight:600,textAlign:"right"}}>{v}</span>
+                </div>))}
+              </div>))}
+            </div>)}
+
+            {/* Goals */}
+            {activeTab==="goals"&&(<div style={{padding:"0.9rem",maxHeight:560,overflowY:"auto"}}>
+              <GoalsPanel
+                rows={rows}
+                annualReturn={annualReturn}
+                bigBoostTimeline={bigBoostTimeline}
+                smallBoostTimeline={smallBoostTimeline}
+                inflation={inflation}
+                goals={goals}
+                onChange={setGoals}
+                horizonMonths={horizon}
+              />
+            </div>)}
+
+            {/* AI Insights */}
+            {activeTab==="insights"&&(<div style={{maxHeight:580,overflowY:"auto"}}>
+              <InsightsPanel
+                fundBalance={last.balance||initialFund}
+                annualReturn={annualReturn}
+                usdRate={usdRate}
+              />
+            </div>)}
+          </div>
+        </div>
+
+        <p style={{textAlign:"center",fontSize:"0.62rem",color:C.muted,marginTop:"1rem"}}>
+          للأغراض التوضيحية فقط · Past performance does not guarantee future results
+        </p>
+      </div>
+    </div>
+  </>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
