@@ -77,16 +77,32 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
   const rows=[];
   for(let i=0;i<horizonMonths;i++){
     const{year,month}=absToDate(i);
-    const{bigWage,bigPayout,smallWage,smallPayout}=schedule[i];
+    const{bigWage:bigWageBase,bigPayout,smallWage:smallWageBase,smallPayout}=schedule[i];
+
+    // Current month boost (affects how much comes from fund vs wages this month)
     const bigBoost=getBoostAt(bigBoostTimeline,i);
     const smallBoost=getBoostAt(smallBoostTimeline,i);
-    const bigFundDrain=Math.min(bigBoost,bigWage+(bigPayout>0?2000:0));
-    const smallFundDrain=Math.min(smallBoost,smallWage+(smallPayout>0?1000:0));
+
+    // Fund drain: boost replaces wages. Cap at actual wage obligation this month
+    // On payout month, agency deducts contribution so total obligation = wageBaes + 2000(deducted)
+    const bigTotalObligation=bigWageBase+(bigPayout>0?2000:0);
+    const smallTotalObligation=smallWageBase+(smallPayout>0?1000:0);
+    const bigFundDrain=Math.min(bigBoost,bigTotalObligation);
+    const smallFundDrain=Math.min(smallBoost,smallTotalObligation);
     const totalFundDrain=Math.min(bigFundDrain+smallFundDrain,balance*0.2);
-    const bigContrib=2000+bigBoost;
-    const smallContrib=1000+smallBoost;
+
+    // Actual wages paid = base wage - fund drain portion (only wage months, not payout deduction)
+    const bigWageActual=Math.max(0,bigWageBase-Math.min(bigFundDrain,bigWageBase));
+    const smallWageActual=Math.max(0,smallWageBase-Math.min(smallFundDrain,smallWageBase));
+
+    // Payout uses boost from circle START month (3 months before payout = slot 4 of 6)
+    const bigBoostAtStart=i>=3?getBoostAt(bigBoostTimeline,i-3):0;
+    const smallBoostAtStart=i>=3?getBoostAt(smallBoostTimeline,i-3):0;
+    const bigContrib=2000+bigBoostAtStart;
+    const smallContrib=1000+smallBoostAtStart;
     const bigPayoutBoosted=bigPayout>0?bigContrib*5:0;
     const smallPayoutBoosted=smallPayout>0?smallContrib*5:0;
+
     const returnAmt=balance*mRate;
     balance+=returnAmt;
     balance-=totalFundDrain;
@@ -95,7 +111,19 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const totalIn=bigPayoutBoosted+smallPayoutBoosted+usdIn+manualIn;
     balance+=totalIn;totalDeposited+=totalIn;
     inflBase*=(1+mInfl);
-    rows.push({absIdx:i,year,month,balance,realValue:balance/inflBase,returnAmt,totalFundDrain,bigWage,bigFund:bigFundDrain,smallWage,smallFund:smallFundDrain,bigPayout:bigPayoutBoosted,smallPayout:smallPayoutBoosted,usdIn,manualIn,totalIn,totalDeposited,gain:balance-totalDeposited});
+    rows.push({
+      absIdx:i,year,month,balance,
+      realValue:balance/inflBase,
+      returnAmt,totalFundDrain,
+      bigWage:bigWageActual,
+      bigFund:bigFundDrain,
+      smallWage:smallWageActual,
+      smallFund:smallFundDrain,
+      bigPayout:bigPayoutBoosted,
+      smallPayout:smallPayoutBoosted,
+      usdIn,manualIn,totalIn,totalDeposited,
+      gain:balance-totalDeposited
+    });
   }
   return rows;
 }
@@ -194,7 +222,7 @@ const SMALL_JOIN_MONTHS=new Set([4,6,8,10,0,2]);
 // unique key per alert: "big-absIdx" or "small-absIdx"
 function alertKey(type,absIdx){return`${type}-${absIdx}`;}
 
-function AlertPanel({horizonMonths}){
+function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline}){
   const today=new Date();
   const todayAbs=(today.getFullYear()-2026)*12+today.getMonth()-3;
 
@@ -226,13 +254,41 @@ function AlertPanel({horizonMonths}){
   for(let i=Math.max(0,todayAbs);i<horizonMonths;i++){
     const{year,month}=absToDate(i);
     const isCurrent=i===todayAbs,isNext=i===todayAbs+1,monthsAway=i-todayAbs;
+
     if(BIG_JOIN_MONTHS.has(month)){
       const key=alertKey("big",i);
-      alerts.push({absIdx:i,year,month,type:"big",label:"Big EGP Circle",color:C.blue,icon:"🔵",contrib:"ج.م 2,000/mo",payout:"ج.م 10,000",isCurrent,isNext,monthsAway,key,done:joined.has(key)});
+      // Circle starts NOW (absIdx i) and pays in month i+3 (slot 4)
+      const bigBoost=getBoostAt(bigBoostTimeline,i);
+      const bigContrib=2000+bigBoost;
+      const bigPayout=bigContrib*5;
+      const payoutDate=absToDate(i+3);
+      const boosted=bigBoost>0;
+      alerts.push({
+        absIdx:i,year,month,type:"big",
+        label:"Big EGP Circle",color:C.blue,icon:"🔵",
+        contrib:`ج.م ${bigContrib.toLocaleString()}/mo${boosted?` (ج.م 2,000 wages + ج.م ${bigBoost.toLocaleString()} fund)`:""}`,
+        payout:fmtEGP(bigPayout),
+        payoutMonth:`${MONTHS_EN[payoutDate.month]} ${payoutDate.year}`,
+        boosted,
+        isCurrent,isNext,monthsAway,key,done:joined.has(key)
+      });
     }
     if(SMALL_JOIN_MONTHS.has(month)&&i>=1){
       const key=alertKey("small",i);
-      alerts.push({absIdx:i,year,month,type:"small",label:"Small EGP Circle",color:C.green,icon:"🟢",contrib:"ج.م 1,000/mo",payout:"ج.م 5,000",isCurrent,isNext,monthsAway,key,done:joined.has(key)});
+      const smallBoost=getBoostAt(smallBoostTimeline,i);
+      const smallContrib=1000+smallBoost;
+      const smallPayout=smallContrib*5;
+      const payoutDate=absToDate(i+3);
+      const boosted=smallBoost>0;
+      alerts.push({
+        absIdx:i,year,month,type:"small",
+        label:"Small EGP Circle",color:C.green,icon:"🟢",
+        contrib:`ج.م ${smallContrib.toLocaleString()}/mo${boosted?` (ج.م 1,000 wages + ج.م ${smallBoost.toLocaleString()} fund)`:""}`,
+        payout:fmtEGP(smallPayout),
+        payoutMonth:`${MONTHS_EN[payoutDate.month]} ${payoutDate.year}`,
+        boosted,
+        isCurrent,isNext,monthsAway,key,done:joined.has(key)
+      });
     }
   }
   alerts.sort((a,b)=>a.absIdx-b.absIdx);
@@ -265,11 +321,16 @@ function AlertPanel({horizonMonths}){
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.5rem",marginBottom:"0.3rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
             <span style={{fontSize:"1rem"}}>{a.icon}</span>
-            <span style={{fontSize:"0.82rem",fontWeight:800,color:a.color}}>Join {a.label} Now!</span>
+            <div>
+              <span style={{fontSize:"0.82rem",fontWeight:800,color:a.color}}>Join {a.label} Now!</span>
+              {a.boosted&&<span style={{fontSize:"0.62rem",background:`${C.accent}20`,border:`1px solid ${C.accent}40`,borderRadius:4,padding:"0.1rem 0.4rem",color:C.accent,marginLeft:"0.4rem"}}>⚡ Boosted</span>}
+            </div>
           </div>
           <TickBtn a={a}/>
         </div>
-        <div style={{fontSize:"0.7rem",color:C.sub}}>Contribute <span style={{color:C.text,fontWeight:700}}>{a.contrib}</span> · Collect <span style={{color:C.green,fontWeight:700}}>{a.payout}</span></div>
+        <div style={{fontSize:"0.7rem",color:C.sub}}>
+          Contribute <span style={{color:C.text,fontWeight:700}}>{a.contrib}</span> · Collect <span style={{color:C.green,fontWeight:700}}>{a.payout}</span> in <span style={{color:C.accent,fontWeight:700}}>{a.payoutMonth}</span>
+        </div>
       </div>))}
     </div>)}
 
@@ -1027,7 +1088,7 @@ function App(){
 
           {/* LEFT */}
           <div style={{display:"flex",flexDirection:"column",gap:"0.8rem"}}>
-            <AlertPanel horizonMonths={horizon}/>
+            <AlertPanel horizonMonths={horizon} bigBoostTimeline={bigBoostTimeline} smallBoostTimeline={smallBoostTimeline}/>
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
               <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>⚙️ Fund Settings</div>
