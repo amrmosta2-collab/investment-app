@@ -81,7 +81,9 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
 
     const bigBoost=getBoostAt(bigBoostTimeline,i);
     const smallBoost=getBoostAt(smallBoostTimeline,i);
-    const withdrawalPct=getBoostAt(withdrawalTimeline,i); // reuse getBoostAt, stores pct 0-100
+    const withdrawalPoint=withdrawalTimeline.slice().reverse().find(p=>p.absIdx<=i)||null;
+    const withdrawalPct=withdrawalPoint&&withdrawalPoint.mode==="pct"?withdrawalPoint.amount:0;
+    const withdrawalAmt=withdrawalPoint&&withdrawalPoint.mode==="egp"?withdrawalPoint.amount:0;
 
     const bigTotalObligation=bigWageBase+(bigPayout>0?2000:0);
     const smallTotalObligation=smallWageBase+(smallPayout>0?1000:0);
@@ -103,8 +105,17 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const returnAmt=balance*mRate;
     balance+=returnAmt;
 
-    // 2. Withdraw % of return
-    const returnWithdrawn=returnAmt*(withdrawalPct/100);
+    // 2. Withdraw from return — either fixed EGP or % of return
+    const returnWithdrawn=withdrawalPoint
+      ? withdrawalPoint.mode==="pct"
+        ? Math.min(returnAmt*(withdrawalPoint.amount/100), returnAmt)
+        : Math.min(withdrawalPoint.amount, returnAmt)
+      : 0;
+    const withdrawalDisplay=withdrawalPoint
+      ? withdrawalPoint.mode==="pct"
+        ? `${withdrawalPoint.amount}%`
+        : fmtEGP(withdrawalPoint.amount)
+      : "0";
     balance-=returnWithdrawn;
 
     // 3. Drain circle boosts
@@ -118,7 +129,8 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     rows.push({
       absIdx:i,year,month,balance,
       realValue:balance/inflBase,
-      returnAmt,returnWithdrawn,withdrawalPct,
+      returnAmt,returnWithdrawn,withdrawalDisplay,
+      withdrawalPct:withdrawalPoint?.mode==="pct"?withdrawalPoint.amount:0,
       totalFundDrain,
       bigWage:bigWageActual,bigFund:bigFundDrain,
       smallWage:smallWageActual,smallFund:smallFundDrain,
@@ -1128,7 +1140,7 @@ function App(){
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
               <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.5rem"}}>💸 Fund Return Withdrawal</div>
               <div style={{fontSize:"0.68rem",color:C.sub,marginBottom:"0.9rem",lineHeight:1.6}}>
-                Set what % of your monthly fund return to withdraw as cash. The rest stays and compounds.
+                Set how much to withdraw from your monthly fund return. Choose a fixed ج.م amount or a % of return.
               </div>
 
               {withdrawalTimeline.length===0&&<div style={{fontSize:"0.68rem",color:C.muted,fontStyle:"italic",marginBottom:"0.6rem"}}>No withdrawal — 100% compounding</div>}
@@ -1137,17 +1149,23 @@ function App(){
                 const ni=withdrawalTimeline.findIndex(x=>x.absIdx>p.absIdx);
                 const np=ni>=0?withdrawalTimeline[ni]:null;
                 const until=np?(()=>{const d=absToDate(np.absIdx-1);return`${MONTHS_EN[d.month]} ${d.year}`;})():"onwards";
-                // Show estimated monthly withdrawal
                 const sampleRow=rows.find(r=>r.absIdx===p.absIdx);
-                const estWithdrawal=sampleRow?Math.round(sampleRow.returnAmt*(p.amount/100)):0;
+                const estWithdrawal=sampleRow
+                  ? p.mode==="pct"
+                    ? Math.round(sampleRow.returnAmt*(p.amount/100))
+                    : p.amount
+                  : 0;
                 return(<div key={p.absIdx} style={{display:"flex",alignItems:"center",gap:"0.4rem",marginBottom:"0.35rem",background:`${C.accent}0e`,borderRadius:7,padding:"0.38rem 0.65rem"}}>
                   <div style={{flex:1}}>
                     <span style={{fontSize:"0.7rem",color:C.sub}}>From </span>
                     <span style={{fontSize:"0.72rem",color:C.text,fontWeight:700}}>{MONTHS_EN[month]} {year}</span>
                     <span style={{fontSize:"0.68rem",color:C.muted}}> → {until}</span>
-                    {estWithdrawal>0&&<div style={{fontSize:"0.65rem",color:C.accent}}>≈ {fmtEGP(estWithdrawal)}/mo at start</div>}
+                    {estWithdrawal>0&&<div style={{fontSize:"0.65rem",color:C.accent}}>≈ {fmtEGP(estWithdrawal)}/mo</div>}
                   </div>
-                  <span style={{fontSize:"0.78rem",color:C.accent,fontFamily:"monospace",fontWeight:700}}>{p.amount}%</span>
+                  <span style={{fontSize:"0.75rem",color:C.accent,fontFamily:"monospace",fontWeight:700}}>
+                    {p.mode==="pct"?`${p.amount}%`:fmtEGP(p.amount)}
+                  </span>
+                  <span style={{fontSize:"0.6rem",color:C.muted,background:C.border,borderRadius:4,padding:"0.1rem 0.3rem"}}>{p.mode==="pct"?"%":"ج.م"}</span>
                   <button onClick={()=>setWithdrawalTimeline(withdrawalTimeline.filter(x=>x.absIdx!==p.absIdx))}
                     style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem"}}>✕</button>
                 </div>);
@@ -1156,40 +1174,75 @@ function App(){
               {/* Add new withdrawal point */}
               {(()=>{
                 const[selMonth,setSelMonth]=useState(0);
-                const[selPct,setSelPct]=useState(0);
+                const[selAmount,setSelAmount]=useState(0);
+                const[selMode,setSelMode]=useState("pct"); // "pct" or "egp"
                 const[wError,setWError]=useState("");
                 const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+
+                // Preview: estimate withdrawal based on mode
+                const sampleRow=rows.find(r=>r.absIdx===selMonth);
+                const estPreview=sampleRow&&selAmount>0
+                  ? selMode==="pct"
+                    ? Math.round(sampleRow.returnAmt*(selAmount/100))
+                    : selAmount
+                  : 0;
+
                 const addW=()=>{
-                  const cur=getBoostAt(withdrawalTimeline,selMonth);
-                  if(selPct===cur){setWError("Already set to this % for this period.");return;}
-                  if(selPct<0||selPct>100){setWError("Must be between 0–100%");return;}
+                  if(selAmount<=0){setWError("Enter an amount greater than 0.");return;}
+                  if(selMode==="pct"&&selAmount>100){setWError("Percentage must be 0–100%");return;}
                   setWError("");
-                  const updated=[...withdrawalTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selPct}].sort((a,b)=>a.absIdx-b.absIdx);
+                  const updated=[...withdrawalTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selAmount,mode:selMode}].sort((a,b)=>a.absIdx-b.absIdx);
                   setWithdrawalTimeline(updated);
+                  setSelAmount(0);
                 };
+
+                // Get current active setting for selected month
+                const activePoint=withdrawalTimeline.slice().reverse().find(p=>p.absIdx<=selMonth)||null;
+                const activeLabel=activePoint
+                  ? activePoint.mode==="pct"?`${activePoint.amount}% of return`:fmtEGP(activePoint.amount)+" fixed"
+                  : "No withdrawal";
+
                 return(<>
-                  <div style={{display:"flex",gap:"0.4rem",marginTop:"0.6rem",flexWrap:"wrap"}}>
+                  {/* Mode toggle */}
+                  <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem",marginTop:"0.5rem"}}>
+                    {[["pct","% of Return"],["egp","Fixed ج.م"]].map(([m,l])=>(
+                      <button key={m} onClick={()=>{setSelMode(m);setSelAmount(0);setWError("");}}
+                        style={{flex:1,padding:"0.35rem",borderRadius:8,border:`1px solid ${selMode===m?C.accent:C.border}`,background:selMode===m?`${C.accent}18`:"transparent",color:selMode===m?C.accent:C.muted,fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:selMode===m?700:400}}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
                     <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setWError("");}}
                       style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
                       {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
                     </select>
                     <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
-                      <input type="number" value={selPct} min={0} max={100} step={5}
-                        onChange={e=>{setSelPct(Number(e.target.value));setWError("");}}
+                      <input type="number" value={selAmount||""} min={0} max={selMode==="pct"?100:99999} step={selMode==="pct"?5:100}
+                        onChange={e=>{setSelAmount(Number(e.target.value));setWError("");}}
+                        placeholder={selMode==="pct"?"e.g. 30":"e.g. 2000"}
                         style={{width:"100%",background:C.bg,border:`1px solid ${wError?C.red:C.border}`,borderRadius:7,color:C.accent,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
-                      <span style={{color:C.muted,fontSize:"0.78rem",flexShrink:0}}>%</span>
+                      <span style={{color:C.muted,fontSize:"0.78rem",flexShrink:0}}>{selMode==="pct"?"%":"ج.م"}</span>
                     </div>
                     <button onClick={addW}
                       style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                       + Set
                     </button>
                   </div>
+
+                  {/* Live preview */}
+                  {estPreview>0&&<div style={{fontSize:"0.68rem",color:C.accent,marginTop:"0.35rem"}}>
+                    ≈ {fmtEGP(estPreview)}/mo withdrawn at {MONTHS_EN[absToDate(selMonth).month]} {absToDate(selMonth).year}
+                    {selMode==="pct"&&sampleRow&&<span style={{color:C.muted}}> ({selAmount}% of ≈{fmtEGP(Math.round(sampleRow.returnAmt))} return)</span>}
+                  </div>}
+
                   {wError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {wError}</div>}
                   <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
-                    Active: <span style={{color:C.accent,fontFamily:"monospace",fontWeight:700}}>{getBoostAt(withdrawalTimeline,selMonth)}%</span> · 0% = full compounding
+                    Active for selected month: <span style={{color:C.accent,fontWeight:700}}>{activeLabel}</span>
                   </div>
                   {withdrawalTimeline.length>0&&<div style={{fontSize:"0.68rem",color:C.sub,marginTop:"0.7rem",lineHeight:1.5,background:`${C.blue}08`,borderRadius:8,padding:"0.5rem 0.7rem"}}>
-                    💡 To use withdrawn cash for circles, set your circle boost amounts in the panel above — the withdrawal covers those boosts.
+                    💡 To route withdrawn cash to circles, set boost amounts in the panel above.
                   </div>}
                 </>);
               })()}
@@ -1223,7 +1276,7 @@ function App(){
                     {r.smallPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.green}12`,border:`1px solid ${C.green}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.green}}>🟢 {fmtEGP(r.smallPayout)}</span>}
                     {r.usdIn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💵 {fmtEGP(r.usdIn)}</span>}
                     {r.manualIn>0&&<span style={{fontSize:"0.65rem",background:`${C.teal}12`,border:`1px solid ${C.teal}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.teal}}>➕ {fmtEGP(r.manualIn)}</span>}
-                    {r.returnWithdrawn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💸 {fmtEGP(r.returnWithdrawn)} ({r.withdrawalPct}%)</span>}
+                    {r.returnWithdrawn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💸 {fmtEGP(r.returnWithdrawn)} ({r.withdrawalDisplay})</span>}
                     {!has&&!r.returnWithdrawn&&<span style={{fontSize:"0.65rem",color:C.muted}}>—</span>}
                   </div>
                   <div style={{textAlign:"right"}}>
