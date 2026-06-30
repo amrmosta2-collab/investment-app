@@ -695,14 +695,15 @@ function InsightsPanel({fundBalance,annualReturn,usdRate}){
 User profile: fund balance ${Math.round(fundBalance).toLocaleString()} EGP, ${annualReturn}% annual return, USD/EGP rate ${usdRate}, goal: grow wealth long term, risk: moderate, open to EGX stocks, gold, banking sector.
 
 Search for EACH of these separately to get accurate real-time data:
-1. Search "EGX30 index today ${new Date().getFullYear()}" to get current EGX30 price
-2. Search "gold price Egypt EGP per gram today" to get current gold price in EGP
-3. Search "CBE interest rate Egypt ${new Date().getFullYear()}" to get current CBE rate
+1. Search "صندوق بريق العائد اليومي" or "Bareeq fund Thndr daily yield rate" to get the current published annual yield for the بريق (Bareeq) fixed income fund
+2. Search "EGX30 index today ${new Date().getFullYear()}" to get current EGX30 price
+3. Search "gold price Egypt EGP per gram today" to get current gold price in EGP
+4. Search "CBE interest rate Egypt ${new Date().getFullYear()}" to get current CBE rate
 
 Then respond ONLY with this exact JSON (no markdown, no backticks, no extra text before or after):
-{"summary":"2 sentence Egypt market summary with real numbers you found","lastUpdated":"${today}","opportunities":[{"id":"1","category":"Stocks","icon":"📈","title":"EGX 30 Index Exposure","ticker":"EGX30","currentPrice":"use exact number you found","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"medium term","risk":"Medium","howToInvest":"Via Thndr app - buy EGX30 index funds or top stocks","keyPoints":["point1 with real data","point2 with real data"],"warning":"main risk"},{"id":"2","category":"Gold","icon":"🥇","title":"Gold EGP","ticker":null,"currentPrice":"use exact price you found per gram","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"long term","risk":"Low","howToInvest":"Via gold savings accounts or physical gold shops","keyPoints":["point1","point2"],"warning":null},{"id":"3","category":"Fixed Income","icon":"🏦","title":"CBE Rate & Your Fund","ticker":null,"currentPrice":"CBE rate you found","signal":"HOLD","signalReason":"one sentence about rate outlook","potential":"Medium","timeframe":"short term","risk":"Low","howToInvest":"Keep money in Thndr fixed income fund at ${annualReturn}%","keyPoints":["point1","point2"],"warning":"Watch for CBE rate cuts"}],"portfolioSuggestion":"specific suggestion for user with ${Math.round(fundBalance).toLocaleString()} EGP balance","disclaimer":"For informational purposes only. Not financial advice."}
+{"summary":"2 sentence Egypt market summary with real numbers you found","lastUpdated":"${today}","opportunities":[{"id":"0","category":"Your Fund","icon":"💎","title":"بريق (Bareeq) Fund Rate","ticker":null,"currentPrice":"exact published annual yield % you found, or 'rate not public' if unavailable","signal":"HOLD","signalReason":"one sentence comparing found rate to user's assumed ${annualReturn}%","potential":"Medium","timeframe":"ongoing","risk":"Low","howToInvest":"Already invested via Thndr - monitor daily yield in app","keyPoints":["point1 about the fund","point2 comparing to assumed rate"],"warning":"Daily yields fluctuate with CBE rate changes"},{"id":"1","category":"Stocks","icon":"📈","title":"EGX 30 Index Exposure","ticker":"EGX30","currentPrice":"use exact number you found","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"medium term","risk":"Medium","howToInvest":"Via Thndr app - buy EGX30 index funds or top stocks","keyPoints":["point1 with real data","point2 with real data"],"warning":"main risk"},{"id":"2","category":"Gold","icon":"🥇","title":"Gold EGP","ticker":null,"currentPrice":"use exact price you found per gram","signal":"BUY","signalReason":"one sentence with real data","potential":"High","timeframe":"long term","risk":"Low","howToInvest":"Via gold savings accounts or physical gold shops","keyPoints":["point1","point2"],"warning":null},{"id":"3","category":"Fixed Income","icon":"🏦","title":"CBE Rate Outlook","ticker":null,"currentPrice":"CBE rate you found","signal":"HOLD","signalReason":"one sentence about rate outlook","potential":"Medium","timeframe":"short term","risk":"Low","howToInvest":"Affects your بريق fund yield directly","keyPoints":["point1","point2"],"warning":"Watch for CBE rate cuts"}],"portfolioSuggestion":"specific suggestion for user with ${Math.round(fundBalance).toLocaleString()} EGP balance in بريق fund","disclaimer":"For informational purposes only. Not financial advice."}
 
-IMPORTANT: Use the EXACT real numbers you find in searches. Do not use approximate or outdated numbers.`;
+IMPORTANT: Use the EXACT real numbers you find in searches, especially for the بريق fund rate. If you cannot find بريق's specific published rate, search for "Thndr fixed income fund yield" generally and note in keyPoints that exact بريق rate wasn't publicly available.`;
 
     try{
       const res=await fetch("/api/ai",{
@@ -860,7 +861,123 @@ IMPORTANT: Use the EXACT real numbers you find in searches. Do not use approxima
 }
 
 
-// ── Supabase Cloud Sync ───────────────────────────────────────
+// ── Bareeq Fund Unit Price Tracker ─────────────────────────────
+// Seed data point provided by user: 1.71% return for the past month, as of Jun 29 2026 price 207.08859
+const BAREEQ_SEED={date:"2026-06-29",price:207.08859,seedMonthlyPct:1.71};
+
+function annualizeFromTwoPoints(p1,p2){
+  // p1, p2: {date, price} with date as ISO string, p1 older
+  const d1=new Date(p1.date),d2=new Date(p2.date);
+  const days=(d2-d1)/(1000*60*60*24);
+  if(days<=0||p1.price<=0)return null;
+  const totalReturn=(p2.price-p1.price)/p1.price;
+  const dailyRate=Math.pow(1+totalReturn,1/days)-1;
+  const annualPct=(Math.pow(1+dailyRate,365)-1)*100;
+  return{totalReturn:totalReturn*100,days,annualPct};
+}
+
+function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualReturn}){
+  const[fetching,setFetching]=useState(false);
+  const[fetchError,setFetchError]=useState("");
+  const[lastFetchedToday,setLastFetchedToday]=useState(false);
+
+  const todayISO=new Date().toISOString().slice(0,10);
+
+  const fetchPrice=useCallback(async()=>{
+    setFetching(true);setFetchError("");
+    try{
+      const res=await fetch("/api/bareeq");
+      const data=await res.json();
+      if(data.error)throw new Error(data.error);
+      const newEntry={date:todayISO,price:data.price,fetchedAt:data.fetchedAt};
+      // Only add if we don't already have today's price
+      const exists=priceHistory.some(p=>p.date===todayISO);
+      if(!exists){
+        const updated=[...priceHistory,newEntry].sort((a,b)=>new Date(a.date)-new Date(b.date));
+        onUpdateHistory(updated);
+      } else {
+        // Update today's entry with latest price
+        const updated=priceHistory.map(p=>p.date===todayISO?newEntry:p).sort((a,b)=>new Date(a.date)-new Date(b.date));
+        onUpdateHistory(updated);
+      }
+      setLastFetchedToday(true);
+    }catch(e){
+      setFetchError("Could not fetch live price. "+e.message);
+    }
+    setFetching(false);
+  },[priceHistory,onUpdateHistory,todayISO]);
+
+  // Auto-fetch once per day on mount
+  useEffect(()=>{
+    const alreadyHaveToday=priceHistory.some(p=>p.date===todayISO);
+    if(!alreadyHaveToday)fetchPrice();
+    else setLastFetchedToday(true);
+    // eslint-disable-next-line
+  },[]);
+
+  // Combine seed + history for calculation, sorted
+  const allPoints=React.useMemo(()=>{
+    const seedPoint={date:BAREEQ_SEED.date,price:BAREEQ_SEED.price,isSeed:true};
+    const merged=[seedPoint,...priceHistory.filter(p=>p.date!==BAREEQ_SEED.date)];
+    return merged.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  },[priceHistory]);
+
+  const latest=allPoints[allPoints.length-1];
+  const oldest=allPoints[0];
+  const calc=allPoints.length>=2?annualizeFromTwoPoints(oldest,latest):null;
+
+  // If only seed exists (no real fetched data yet), use seed monthly % directly
+  const displayAnnualPct=allPoints.length<2
+    ? (Math.pow(1+BAREEQ_SEED.seedMonthlyPct/100,12)-1)*100
+    : calc?.annualPct;
+
+  const daysTracked=calc?Math.round(calc.days):0;
+  const dataQuality=daysTracked<7?"low":daysTracked<30?"medium":"high";
+  const qualityColor={low:C.red,medium:C.accent,high:C.green}[dataQuality];
+  const qualityLabel={low:"Based on seed estimate",medium:`Based on ${daysTracked} days tracked`,high:`Based on ${daysTracked} days — reliable`}[dataQuality];
+
+  const sparkData=allPoints.map(p=>p.price);
+
+  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem",marginBottom:"0.8rem"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.6rem"}}>
+      <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>💎 بريق Fund Tracker</div>
+      <button onClick={fetchPrice} disabled={fetching}
+        style={{background:`${C.accent}15`,border:`1px solid ${C.accent}35`,borderRadius:6,padding:"0.18rem 0.5rem",cursor:fetching?"default":"pointer",fontSize:"0.65rem",color:C.accent,fontFamily:"inherit"}}>
+        {fetching?"⟳ Fetching...":"↻ Refresh Price"}
+      </button>
+    </div>
+
+    {fetchError&&<div style={{fontSize:"0.65rem",color:C.red,marginBottom:"0.6rem",background:`${C.red}0d`,borderRadius:6,padding:"0.4rem 0.6rem"}}>⚠️ {fetchError}</div>}
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.6rem",marginBottom:"0.7rem"}}>
+      <div>
+        <div style={{fontSize:"0.62rem",color:C.muted}}>Current Unit Price</div>
+        <div style={{fontSize:"1rem",fontWeight:800,color:C.text,fontFamily:"monospace"}}>{latest?.price?.toFixed(4)||"—"} ج.م</div>
+        <div style={{fontSize:"0.58rem",color:C.muted}}>{latest?.date}</div>
+      </div>
+      <div>
+        <div style={{fontSize:"0.62rem",color:C.muted}}>Real Annual Return</div>
+        <div style={{fontSize:"1rem",fontWeight:800,color:C.green,fontFamily:"monospace"}}>{displayAnnualPct?.toFixed(2)}%</div>
+        <div style={{fontSize:"0.58rem",color:qualityColor}}>{qualityLabel}</div>
+      </div>
+    </div>
+
+    {sparkData.length>=2&&(<div style={{marginBottom:"0.7rem"}}>
+      <Sparkline data={sparkData} color={C.green}/>
+    </div>)}
+
+    <button onClick={()=>onApplyRate(Math.round(displayAnnualPct*10)/10)}
+      style={{width:"100%",background:Math.abs(currentAnnualReturn-displayAnnualPct)<0.5?C.border:`${C.green}18`,border:`1px solid ${Math.abs(currentAnnualReturn-displayAnnualPct)<0.5?C.border:C.green+"45"}`,borderRadius:8,color:Math.abs(currentAnnualReturn-displayAnnualPct)<0.5?C.muted:C.green,padding:"0.45rem",fontSize:"0.73rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+      {Math.abs(currentAnnualReturn-displayAnnualPct)<0.5?"✓ Projection already matches":`🔄 Apply ${displayAnnualPct?.toFixed(1)}% to Annual Return`}
+    </button>
+
+    <div style={{fontSize:"0.6rem",color:C.muted,marginTop:"0.5rem",lineHeight:1.5}}>
+      Seeded with your reported 1.71% monthly return (Jun 29, 2026). Price auto-checked once per day from AAIM's official بريق page — accuracy improves as more days accumulate.
+    </div>
+  </div>);
+}
+
+
 const SUPABASE_URL="https://glaivqzhjqtfskjzxhub.supabase.co";
 const SUPABASE_KEY="sb_publishable_WZlvwO_HnP9TNR4yOoxXAQ_oXSM_j8f";
 const USER_ID="main_user"; // single user app
@@ -912,6 +1029,7 @@ function App(){
   const[bigBoostTimeline,setBigBoostTimeline]=useState(local.bigBoostTimeline||[]);
   const[smallBoostTimeline,setSmallBoostTimeline]=useState(local.smallBoostTimeline||[]);
   const[withdrawalTimeline,setWithdrawalTimeline]=useState(local.withdrawalTimeline||[]);
+  const[bareeqPriceHistory,setBareeqPriceHistory]=useState(local.bareeqPriceHistory||[]);
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
   const[initialFund,setInitialFund]=useState(local.initialFund||40000);
   const[fundInput,setFundInput]=useState(String(local.initialFund||40000));
@@ -931,6 +1049,7 @@ function App(){
         if(data.bigBoostTimeline)setBigBoostTimeline(data.bigBoostTimeline);
         if(data.smallBoostTimeline)setSmallBoostTimeline(data.smallBoostTimeline);
         if(data.withdrawalTimeline)setWithdrawalTimeline(data.withdrawalTimeline);
+        if(data.bareeqPriceHistory)setBareeqPriceHistory(data.bareeqPriceHistory);
         if(data.manualDeposits)setManualDeposits(data.manualDeposits);
         if(data.initialFund){setInitialFund(data.initialFund);setFundInput(String(data.initialFund));}
         if(data.goals)setGoals(data.goals);
@@ -950,7 +1069,7 @@ function App(){
     if(syncStatus==="loading")return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
-      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
+      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
       setSavedMsg("⟳ Saving...");
       await cloudSave(state);
       setSyncStatus("synced");
@@ -958,7 +1077,7 @@ function App(){
       setTimeout(()=>setSavedMsg(""),2500);
     },1200);
     return()=>{if(saveTimer.current)clearTimeout(saveTimer.current);};
-  },[annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,initialFund,goals]);
+  },[annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,initialFund,goals]);
 
   // Fetch live USD/EGP from free public API
   const fetchRate=useCallback(async()=>{
@@ -1105,6 +1224,13 @@ function App(){
           {/* LEFT */}
           <div style={{display:"flex",flexDirection:"column",gap:"0.8rem"}}>
             <AlertPanel horizonMonths={horizon} bigBoostTimeline={bigBoostTimeline} smallBoostTimeline={smallBoostTimeline}/>
+
+            <BareeqTracker
+              priceHistory={bareeqPriceHistory}
+              onUpdateHistory={setBareeqPriceHistory}
+              onApplyRate={setAnnualReturn}
+              currentAnnualReturn={annualReturn}
+            />
 
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
               <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>⚙️ Fund Settings</div>
