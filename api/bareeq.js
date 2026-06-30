@@ -5,58 +5,33 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    const prompt = `Search the web and visit this URL: https://aaim.com.eg/ar/what-we-offer/funds/bareeq
-
-This is the official page for the بريق (Bareeq) fixed income fund in Egypt, managed by AAIM. The page shows a current unit price (labeled "السعر الحالى") as a decimal number like 207.08859, and a last updated date (labeled "أخر تحديث").
-
-Find the current unit price number and the last updated date.
-
-Respond with ONLY a JSON object on a single line, nothing else before or after it, no markdown formatting, no code fences, no explanation:
-{"price": 207.08859, "lastUpdated": "29 يونيو 2026"}
-
-Use the exact decimal number you found for "price" as a JSON number (not a string).`;
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: prompt }],
-      }),
+    // r.jina.ai renders JS-heavy pages server-side and returns clean text,
+    // which lets us read the price even though AAIM's page loads it via JavaScript.
+    const targetUrl = "https://aaim.com.eg/ar/what-we-offer/funds/bareeq";
+    const response = await fetch(`https://r.jina.ai/${targetUrl}`, {
+      headers: { "X-Return-Format": "text" },
     });
 
-    const data = await response.json();
-    if (data.error) return res.status(500).json({ error: data.error.message });
-
-    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-
-    // Try to find a JSON object containing "price"
-    const jsonMatches = text.match(/\{[^{}]*"price"[^{}]*\}/g);
-    if (!jsonMatches || jsonMatches.length === 0) {
-      return res.status(500).json({ error: "Could not parse price from response", rawText: text.slice(0, 300) });
+    if (!response.ok) {
+      return res.status(500).json({ error: `Render service returned ${response.status}` });
     }
 
-    // Use the last match (most likely the final answer, not search result echo)
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonMatches[jsonMatches.length - 1]);
-    } catch {
-      return res.status(500).json({ error: "Invalid JSON in response", rawText: text.slice(0, 300) });
+    const text = await response.text();
+
+    // Look for "السعر الحالى" followed by a decimal number
+    const priceMatch = text.match(/السعر الحالى[\s\S]{0,40}?([\d]+\.[\d]+)/);
+    const dateMatch = text.match(/أخر تحديث[\s\S]{0,40}?([^\n]+)/);
+
+    if (!priceMatch) {
+      return res.status(500).json({ error: "Could not find price in rendered page", rawText: text.slice(0, 500) });
     }
 
-    if (typeof parsed.price !== "number" || isNaN(parsed.price)) {
-      return res.status(500).json({ error: "Price field missing or invalid", rawText: text.slice(0, 300) });
-    }
+    const price = parseFloat(priceMatch[1]);
+    const lastUpdated = dateMatch ? dateMatch[1].trim() : null;
 
     return res.status(200).json({
-      price: parsed.price,
-      lastUpdated: parsed.lastUpdated || null,
+      price,
+      lastUpdated,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
