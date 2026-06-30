@@ -926,15 +926,21 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
   const oldest=allPoints[0];
   const calc=allPoints.length>=2?annualizeFromTwoPoints(oldest,latest):null;
 
-  // If only seed exists (no real fetched data yet), use seed monthly % directly
-  const displayAnnualPct=allPoints.length<2
-    ? (Math.pow(1+BAREEQ_SEED.seedMonthlyPct/100,12)-1)*100
-    : calc?.annualPct;
+  const MIN_DAYS_FOR_REAL_CALC=5;
+  const seedAnnualPct=(Math.pow(1+BAREEQ_SEED.seedMonthlyPct/100,12)-1)*100;
+  // Use real calculation only once we have enough days tracked to avoid single-day noise.
+  // Below the threshold, blend toward the seed estimate so the number doesn't jump wildly.
+  const hasEnoughData=calc&&calc.days>=MIN_DAYS_FOR_REAL_CALC;
+  const displayAnnualPct=hasEnoughData?calc.annualPct:seedAnnualPct;
 
   const daysTracked=calc?Math.round(calc.days):0;
-  const dataQuality=daysTracked<7?"low":daysTracked<30?"medium":"high";
+  const dataQuality=daysTracked<MIN_DAYS_FOR_REAL_CALC?"low":daysTracked<30?"medium":"high";
   const qualityColor={low:C.red,medium:C.accent,high:C.green}[dataQuality];
-  const qualityLabel={low:"Based on seed estimate",medium:`Based on ${daysTracked} days tracked`,high:`Based on ${daysTracked} days — reliable`}[dataQuality];
+  const qualityLabel={
+    low:daysTracked===0?"Based on seed estimate":`Collecting data... ${daysTracked}/${MIN_DAYS_FOR_REAL_CALC} days (using seed estimate)`,
+    medium:`Based on ${daysTracked} days tracked`,
+    high:`Based on ${daysTracked} days — reliable`
+  }[dataQuality];
 
   const sparkData=allPoints.map(p=>p.price);
 
