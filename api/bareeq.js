@@ -5,28 +5,40 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    const response = await fetch("https://aaim.com.eg/ar/what-we-offer/funds/bareeq", {
+    const prompt = `Visit this exact URL: https://aaim.com.eg/ar/what-we-offer/funds/bareeq
+
+Find the current unit price (السعر الحالى) of the بريق (Bareeq) fund shown on that page, and the "أخر تحديث" (last updated) date shown next to it.
+
+Respond ONLY with this exact JSON, no markdown, no extra text:
+{"price": <the exact decimal number you found, as a number not a string>, "lastUpdated": "<the date text you found>"}`;
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
       },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 500,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
-    const html = await response.text();
 
-    // Extract the unit price - it appears after "السعر الحالى" in the page
-    // Looking for a decimal number pattern near that text
-    const priceMatch = html.match(/السعر الحالى[^0-9]*([\d]+\.[\d]+)/);
-    const dateMatch = html.match(/أخر تحديث\s*([^\<]+)/);
+    const data = await response.json();
+    if (data.error) return res.status(500).json({ error: data.error.message });
 
-    if (!priceMatch) {
-      return res.status(500).json({ error: "Could not find price on page" });
-    }
+    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(500).json({ error: "Could not parse price from response" });
 
-    const price = parseFloat(priceMatch[1]);
-    const lastUpdated = dateMatch ? dateMatch[1].trim() : null;
+    const parsed = JSON.parse(jsonMatch[0]);
 
     return res.status(200).json({
-      price,
-      lastUpdated,
+      price: parsed.price,
+      lastUpdated: parsed.lastUpdated,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
