@@ -1555,24 +1555,24 @@ function App(){
                 <td style={{background:C.card,padding:"0.28rem 0.5rem",fontSize:"0.6rem",color,position:"sticky",left:0,zIndex:2,borderBottom:`1px solid ${C.border}`,minWidth:105,whiteSpace:"nowrap",fontWeight:700}}>{label}</td>
               );
               return(<div style={{maxHeight:560,overflowY:"auto"}}>
-                <div style={{overflowX:"auto"}}>
+                <div style={{overflowX:"auto",position:"relative"}}>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
-                    <thead>
+                    <thead style={{position:"sticky",top:0,zIndex:4}}>
                       <tr>
-                        <th style={{background:C.card,padding:"0.4rem 0.5rem",fontSize:"0.6rem",color:C.muted,textAlign:"left",position:"sticky",left:0,zIndex:3,borderBottom:`2px solid ${C.border}`,minWidth:105}}>Circle / Month</th>
+                        <th style={{background:C.card,padding:"0.4rem 0.5rem",fontSize:"0.6rem",color:C.muted,textAlign:"left",position:"sticky",left:0,top:0,zIndex:5,borderBottom:`2px solid ${C.border}`,minWidth:105}}>Circle / Month</th>
                         {tableMonths.map(m=>(
-                          <th key={m.absIdx} style={{background:C.card,padding:"0.3rem 0.1rem",fontSize:"0.56rem",color:C.sub,textAlign:"center",borderBottom:`2px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,minWidth:52,whiteSpace:"nowrap"}}>
+                          <th key={m.absIdx} style={{background:C.card,padding:"0.3rem 0.1rem",fontSize:"0.56rem",color:C.sub,textAlign:"center",borderBottom:`2px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,minWidth:52,whiteSpace:"nowrap",position:"sticky",top:0,zIndex:3}}>
                             {MONTHS_EN[m.month]}<br/><span style={{color:C.muted,fontSize:"0.48rem"}}>{2026+Math.floor((3+m.absIdx)/12)}</span>
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`}}>🔵 Big EGP Circles — click amount to edit</td></tr>
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`,position:"sticky",left:0}}>🔵 Big EGP Circles — click amount to edit</td></tr>
                       {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setBigCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.blue}/>)}
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`}}>🟢 Small EGP Circles — click amount to edit</td></tr>
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`,position:"sticky",left:0}}>🟢 Small EGP Circles — click amount to edit</td></tr>
                       {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setSmallCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.green}/>)}
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`}}>📊 Monthly Summary</td></tr>
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`,position:"sticky",left:0}}>📊 Monthly Summary</td></tr>
                       <tr>
                         {stickyTd("💼 Total Wages Out",C.red)}
                         {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigWage+r.smallWage:0;return(<td key={m.absIdx} style={{background:v>0?`${C.red}10`:C.bg,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.red:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
