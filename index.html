@@ -1096,9 +1096,14 @@ function loadLocalState(){
 function CircleTableRow({circle,months,onAmountChange,color}){
   const[editing,setEditing]=useState(false);
   const[tempVal,setTempVal]=useState(circle.amount);
+  const[justSaved,setJustSaved]=useState(false);
   const commit=()=>{
     const val=parseInt(tempVal);
-    if(!isNaN(val)&&val>0)onAmountChange(circle.idx,val);
+    if(!isNaN(val)&&val>0){
+      onAmountChange(circle.idx,val);
+      setJustSaved(true);
+      setTimeout(()=>setJustSaved(false),1500);
+    }
     setEditing(false);
   };
   const hasActive=months.some(m=>m.absIdx>=circle.start&&m.absIdx<=circle.end);
@@ -1113,8 +1118,8 @@ function CircleTableRow({circle,months,onAmountChange,color}){
         </div>
       ):(
         <div style={{cursor:"pointer"}} onClick={()=>{setEditing(true);setTempVal(circle.amount);}}>
-          <span style={{fontFamily:"monospace",fontWeight:700}}>ج.م {circle.amount.toLocaleString()}</span>
-          <span style={{color:C.muted,marginLeft:"0.25rem",fontSize:"0.58rem"}}>✎</span>
+          <span style={{fontFamily:"monospace",fontWeight:700,color:justSaved?C.green:color}}>ج.م {circle.amount.toLocaleString()}</span>
+          <span style={{color:justSaved?C.green:C.muted,marginLeft:"0.25rem",fontSize:"0.58rem"}}>{justSaved?"✓ applied below":"✎"}</span>
         </div>
       )}
       <div style={{fontSize:"0.55rem",color:C.muted,marginTop:"0.08rem"}}>→ {fmtEGP(circle.payout)}</div>
@@ -1564,9 +1569,9 @@ function App(){
                     </thead>
                     <tbody>
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`}}>🔵 Big EGP Circles — click amount to edit</td></tr>
-                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...bigCircleAmounts];for(let x=idx;x<n.length;x++)n[x]=val;setBigCircleAmounts(n);}} color={C.blue}/>)}
+                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setBigCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.blue}/>)}
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`}}>🟢 Small EGP Circles — click amount to edit</td></tr>
-                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...smallCircleAmounts];for(let x=idx;x<n.length;x++)n[x]=val;setSmallCircleAmounts(n);}} color={C.green}/>)}
+                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setSmallCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.green}/>)}
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`}}>📊 Monthly Summary</td></tr>
                       <tr>
                         {stickyTd("💼 Total Wages Out",C.red)}
