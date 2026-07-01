@@ -890,27 +890,20 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
       const data=await res.json();
       if(data.error)throw new Error(data.error);
 
-      // Parse the lastUpdated date from Arabic text (e.g. "٣٠ يونيو ٢٠٢٦")
-      // Fallback to todayISO if we can't parse it
-      const parseArabicDate=(str)=>{
+      // Parse English date from AAIM (e.g. "30 Jun, 2026")
+      const parseEnglishDate=(str)=>{
         if(!str)return todayISO;
-        // Convert Arabic-Indic digits to Western digits
-        const western=str.replace(/[٠-٩]/g,d=>d.charCodeAt(0)-1632);
-        const months={يناير:"01",فبراير:"02",مارس:"03",إبريل:"04",أبريل:"04",مايو:"05",يونيو:"06",يوليو:"07",أغسطس:"08",سبتمبر:"09",أكتوبر:"10",نوفمبر:"11",ديسمبر:"12"};
-        for(const[ar,num] of Object.entries(months)){
-          if(western.includes(ar)){
-            const dayMatch=western.match(/(\d{1,2})/);
-            const yearMatch=western.match(/(\d{4})/);
-            if(dayMatch&&yearMatch){
-              const day=dayMatch[1].padStart(2,"0");
-              return`${yearMatch[1]}-${num}-${day}`;
-            }
-          }
+        const months={Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
+        const match=str.match(/(\d{1,2})\s+([A-Za-z]{3}),?\s+(\d{4})/);
+        if(match){
+          const day=match[1].padStart(2,"0");
+          const mon=months[match[2]]||"01";
+          return`${match[3]}-${mon}-${day}`;
         }
         return todayISO;
       };
 
-      const entryDate=parseArabicDate(data.lastUpdated);
+      const entryDate=parseEnglishDate(data.lastUpdated);
       const newEntry={date:entryDate,price:data.price,fetchedAt:data.fetchedAt,lastUpdated:data.lastUpdated};
 
       // Deduplicate by date
