@@ -1554,10 +1554,10 @@ function App(){
               const stickyTd=(label,color)=>(
                 <td style={{background:C.card,padding:"0.28rem 0.5rem",fontSize:"0.6rem",color,position:"sticky",left:0,zIndex:2,borderBottom:`1px solid ${C.border}`,minWidth:105,whiteSpace:"nowrap",fontWeight:700}}>{label}</td>
               );
-              return(<div style={{maxHeight:560,overflowY:"auto"}}>
-                <div style={{overflowX:"auto",position:"relative"}}>
+              return(<div style={{maxHeight:520,overflowY:"auto",overflowX:"auto",position:"relative"}}>
+                <div>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
-                    <thead style={{position:"sticky",top:0,zIndex:4}}>
+                    <thead>
                       <tr>
                         <th style={{background:C.card,padding:"0.4rem 0.5rem",fontSize:"0.6rem",color:C.muted,textAlign:"left",position:"sticky",left:0,top:0,zIndex:5,borderBottom:`2px solid ${C.border}`,minWidth:105}}>Circle / Month</th>
                         {tableMonths.map(m=>(
