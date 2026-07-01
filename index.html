@@ -889,15 +889,37 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
       const res=await fetch("/api/bareeq");
       const data=await res.json();
       if(data.error)throw new Error(data.error);
-      const newEntry={date:todayISO,price:data.price,fetchedAt:data.fetchedAt};
-      // Only add if we don't already have today's price
-      const exists=priceHistory.some(p=>p.date===todayISO);
+
+      // Parse the lastUpdated date from Arabic text (e.g. "٣٠ يونيو ٢٠٢٦")
+      // Fallback to todayISO if we can't parse it
+      const parseArabicDate=(str)=>{
+        if(!str)return todayISO;
+        // Convert Arabic-Indic digits to Western digits
+        const western=str.replace(/[٠-٩]/g,d=>d.charCodeAt(0)-1632);
+        const months={يناير:"01",فبراير:"02",مارس:"03",إبريل:"04",أبريل:"04",مايو:"05",يونيو:"06",يوليو:"07",أغسطس:"08",سبتمبر:"09",أكتوبر:"10",نوفمبر:"11",ديسمبر:"12"};
+        for(const[ar,num] of Object.entries(months)){
+          if(western.includes(ar)){
+            const dayMatch=western.match(/(\d{1,2})/);
+            const yearMatch=western.match(/(\d{4})/);
+            if(dayMatch&&yearMatch){
+              const day=dayMatch[1].padStart(2,"0");
+              return`${yearMatch[1]}-${num}-${day}`;
+            }
+          }
+        }
+        return todayISO;
+      };
+
+      const entryDate=parseArabicDate(data.lastUpdated);
+      const newEntry={date:entryDate,price:data.price,fetchedAt:data.fetchedAt,lastUpdated:data.lastUpdated};
+
+      // Deduplicate by date
+      const exists=priceHistory.some(p=>p.date===entryDate);
       if(!exists){
         const updated=[...priceHistory,newEntry].sort((a,b)=>new Date(a.date)-new Date(b.date));
         onUpdateHistory(updated);
       } else {
-        // Update today's entry with latest price
-        const updated=priceHistory.map(p=>p.date===todayISO?newEntry:p).sort((a,b)=>new Date(a.date)-new Date(b.date));
+        const updated=priceHistory.map(p=>p.date===entryDate?newEntry:p).sort((a,b)=>new Date(a.date)-new Date(b.date));
         onUpdateHistory(updated);
       }
       setLastFetchedToday(true);
@@ -907,10 +929,13 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
     setFetching(false);
   },[priceHistory,onUpdateHistory,todayISO]);
 
-  // Auto-fetch once per day on mount
+  // Auto-fetch once on mount if we don't have data from today or yesterday
   useEffect(()=>{
-    const alreadyHaveToday=priceHistory.some(p=>p.date===todayISO);
-    if(!alreadyHaveToday)fetchPrice();
+    const latestStored=priceHistory.length>0?priceHistory[priceHistory.length-1].date:null;
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    const yesterdayISO=yesterday.toISOString().slice(0,10);
+    const alreadyCurrent=latestStored===todayISO||latestStored===yesterdayISO;
+    if(!alreadyCurrent)fetchPrice();
     else setLastFetchedToday(true);
     // eslint-disable-next-line
   },[]);
@@ -959,7 +984,7 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
       <div>
         <div style={{fontSize:"0.62rem",color:C.muted}}>Current Unit Price</div>
         <div style={{fontSize:"1rem",fontWeight:800,color:C.text,fontFamily:"monospace"}}>{latest?.price?.toFixed(4)||"—"} ج.م</div>
-        <div style={{fontSize:"0.58rem",color:C.muted}}>{latest?.date}</div>
+        <div style={{fontSize:"0.58rem",color:C.muted}}>{latest?.lastUpdated||latest?.date}</div>
       </div>
       <div>
         <div style={{fontSize:"0.62rem",color:C.muted}}>Real Annual Return</div>
