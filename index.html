@@ -960,6 +960,34 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
     high:`Based on ${daysTracked} days — reliable`
   }[dataQuality];
 
+  // Monthly return calculation
+  // If we have 30+ days: use actual price 30 days ago vs latest
+  // If we have 5-29 days: derive from annualized rate
+  // If under 5 days: use seed 1.71%
+  const getMonthlyReturn=()=>{
+    if(daysTracked>=30){
+      // Find a price point ~30 days before latest
+      const latestDate=new Date(latest.date);
+      const targetDate=new Date(latestDate);
+      targetDate.setDate(targetDate.getDate()-30);
+      // Find closest point to 30 days ago
+      const point30=allPoints.reduce((prev,curr)=>{
+        const prevDiff=Math.abs(new Date(prev.date)-targetDate);
+        const currDiff=Math.abs(new Date(curr.date)-targetDate);
+        return currDiff<prevDiff?curr:prev;
+      });
+      return ((latest.price-point30.price)/point30.price)*100;
+    } else if(hasEnoughData){
+      // Derive from annualized: (1 + annual/100)^(1/12) - 1
+      return (Math.pow(1+displayAnnualPct/100, 1/12)-1)*100;
+    } else {
+      // Use seed
+      return BAREEQ_SEED.seedMonthlyPct;
+    }
+  };
+  const monthlyReturn=getMonthlyReturn();
+  const monthlySource=daysTracked>=30?"actual 30-day":hasEnoughData?`from ${daysTracked}-day data`:"seed estimate";
+
   const sparkData=allPoints.map(p=>p.price);
 
   return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem",marginBottom:"0.8rem"}}>
@@ -973,16 +1001,21 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
 
     {fetchError&&<div style={{fontSize:"0.65rem",color:C.red,marginBottom:"0.6rem",background:`${C.red}0d`,borderRadius:6,padding:"0.4rem 0.6rem"}}>⚠️ {fetchError}</div>}
 
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.6rem",marginBottom:"0.7rem"}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0.5rem",marginBottom:"0.7rem"}}>
       <div>
-        <div style={{fontSize:"0.62rem",color:C.muted}}>Current Unit Price</div>
-        <div style={{fontSize:"1rem",fontWeight:800,color:C.text,fontFamily:"monospace"}}>{latest?.price?.toFixed(4)||"—"} ج.م</div>
-        <div style={{fontSize:"0.58rem",color:C.muted}}>{latest?.lastUpdated||latest?.date}</div>
+        <div style={{fontSize:"0.6rem",color:C.muted}}>Current Unit Price</div>
+        <div style={{fontSize:"0.9rem",fontWeight:800,color:C.text,fontFamily:"monospace"}}>{latest?.price?.toFixed(4)||"—"} ج.م</div>
+        <div style={{fontSize:"0.56rem",color:C.muted}}>{latest?.lastUpdated||latest?.date}</div>
       </div>
       <div>
-        <div style={{fontSize:"0.62rem",color:C.muted}}>Real Annual Return</div>
-        <div style={{fontSize:"1rem",fontWeight:800,color:C.green,fontFamily:"monospace"}}>{displayAnnualPct?.toFixed(2)}%</div>
-        <div style={{fontSize:"0.58rem",color:qualityColor}}>{qualityLabel}</div>
+        <div style={{fontSize:"0.6rem",color:C.muted}}>Monthly Return</div>
+        <div style={{fontSize:"0.9rem",fontWeight:800,color:C.green,fontFamily:"monospace"}}>{monthlyReturn.toFixed(2)}%</div>
+        <div style={{fontSize:"0.56rem",color:qualityColor}}>{monthlySource}</div>
+      </div>
+      <div>
+        <div style={{fontSize:"0.6rem",color:C.muted}}>Annual Return</div>
+        <div style={{fontSize:"0.9rem",fontWeight:800,color:C.green,fontFamily:"monospace"}}>{displayAnnualPct?.toFixed(2)}%</div>
+        <div style={{fontSize:"0.56rem",color:qualityColor}}>{qualityLabel}</div>
       </div>
     </div>
 
