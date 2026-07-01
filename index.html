@@ -1564,9 +1564,9 @@ function App(){
                     </thead>
                     <tbody>
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`}}>🔵 Big EGP Circles — click amount to edit</td></tr>
-                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...bigCircleAmounts];n[idx]=val;setBigCircleAmounts(n);}} color={C.blue}/>)}
+                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...bigCircleAmounts];for(let x=idx;x<n.length;x++)n[x]=val;setBigCircleAmounts(n);}} color={C.blue}/>)}
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`}}>🟢 Small EGP Circles — click amount to edit</td></tr>
-                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...smallCircleAmounts];n[idx]=val;setSmallCircleAmounts(n);}} color={C.green}/>)}
+                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...smallCircleAmounts];for(let x=idx;x<n.length;x++)n[x]=val;setSmallCircleAmounts(n);}} color={C.green}/>)}
                       <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`}}>📊 Monthly Summary</td></tr>
                       <tr>
                         {stickyTd("💼 Total Wages Out",C.red)}
