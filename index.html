@@ -114,12 +114,17 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const bigWageActual=Math.max(0,bigWageBase-Math.min(bigFundDrain,bigWageBase));
     const smallWageActual=Math.max(0,smallWageBase-Math.min(smallFundDrain,smallWageBase));
 
-    const bigBoostAtStart=i>=3?getBoostAt(bigBoostTimeline,i-3):0;
-    const smallBoostAtStart=i>=3?getBoostAt(smallBoostTimeline,i-3):0;
-    const bigContrib=2000+bigBoostAtStart;
-    const smallContrib=1000+smallBoostAtStart;
-    const bigPayoutBoosted=bigPayout>0?bigContrib*5:0;
-    const smallPayoutBoosted=smallPayout>0?smallContrib*5:0;
+    // Payout uses the circle's actual amount (from schedule) based on circle start month
+    // Circle that pays at absIdx i started at i-3 (slot 4 of 6)
+    // Big circles start at -2,0,2,4... → circle index = (startAbsIdx+2)/2
+    const bigStartAbsIdx=i-3;
+    const bigCircleIdx=Math.floor((bigStartAbsIdx+2)/2);
+    const bigCircleAmt=bigCircleIdx>=0?(bigCircleAmounts[bigCircleIdx]||2000):2000;
+    const smallStartAbsIdx=i-3;
+    const smallCircleIdx=Math.floor((smallStartAbsIdx-1)/2);
+    const smallCircleAmt=smallCircleIdx>=0?(smallCircleAmounts[smallCircleIdx]||1000):1000;
+    const bigPayoutBoosted=bigPayout>0?bigCircleAmt*5:0;
+    const smallPayoutBoosted=smallPayout>0?smallCircleAmt*5:0;
 
     // 1. Fund compounds first
     const returnAmt=balance*mRate;
@@ -256,33 +261,17 @@ const SMALL_JOIN_MONTHS=new Set([4,6,8,10,0,2]);
 // unique key per alert: "big-absIdx" or "small-absIdx"
 function alertKey(type,absIdx){return`${type}-${absIdx}`;}
 
-function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline}){
+function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircleAmounts,smallCircleAmounts}){
   const today=new Date();
   const todayAbs=(today.getFullYear()-2026)*12+today.getMonth()-3;
 
-  // Load joined set from localStorage
   const[joined,setJoined]=useState(()=>{
     try{const s=localStorage.getItem("inv_joined");return s?new Set(JSON.parse(s)):new Set();}
     catch{return new Set();}
   });
 
-  const tick=(key)=>{
-    setJoined(prev=>{
-      const next=new Set(prev);
-      next.add(key);
-      try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}
-      return next;
-    });
-  };
-
-  const untick=(key)=>{
-    setJoined(prev=>{
-      const next=new Set(prev);
-      next.delete(key);
-      try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}
-      return next;
-    });
-  };
+  const tick=(key)=>{setJoined(prev=>{const next=new Set(prev);next.add(key);try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}return next;});};
+  const untick=(key)=>{setJoined(prev=>{const next=new Set(prev);next.delete(key);try{localStorage.setItem("inv_joined",JSON.stringify([...next]));}catch{}return next;});};
 
   const alerts=[];
   for(let i=Math.max(0,todayAbs);i<horizonMonths;i++){
@@ -291,36 +280,34 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline}){
 
     if(BIG_JOIN_MONTHS.has(month)){
       const key=alertKey("big",i);
-      // Circle starts NOW (absIdx i) and pays in month i+3 (slot 4)
-      const bigBoost=getBoostAt(bigBoostTimeline,i);
-      const bigContrib=2000+bigBoost;
+      // Get the circle amount for this circle from the schedule
+      const bigCircleIdx=Math.floor((i+2)/2);
+      const bigContrib=bigCircleAmounts[bigCircleIdx]||2000;
       const bigPayout=bigContrib*5;
       const payoutDate=absToDate(i+3);
-      const boosted=bigBoost>0;
       alerts.push({
         absIdx:i,year,month,type:"big",
         label:"Big EGP Circle",color:C.blue,icon:"🔵",
-        contrib:`ج.م ${bigContrib.toLocaleString()}/mo${boosted?` (ج.م 2,000 wages + ج.م ${bigBoost.toLocaleString()} fund)`:""}`,
+        contrib:`ج.م ${bigContrib.toLocaleString()}/mo`,
         payout:fmtEGP(bigPayout),
         payoutMonth:`${MONTHS_EN[payoutDate.month]} ${payoutDate.year}`,
-        boosted,
+        boosted:false,
         isCurrent,isNext,monthsAway,key,done:joined.has(key)
       });
     }
     if(SMALL_JOIN_MONTHS.has(month)&&i>=1){
       const key=alertKey("small",i);
-      const smallBoost=getBoostAt(smallBoostTimeline,i);
-      const smallContrib=1000+smallBoost;
+      const smallCircleIdx=Math.floor((i-1)/2);
+      const smallContrib=smallCircleAmounts[smallCircleIdx]||1000;
       const smallPayout=smallContrib*5;
       const payoutDate=absToDate(i+3);
-      const boosted=smallBoost>0;
       alerts.push({
         absIdx:i,year,month,type:"small",
         label:"Small EGP Circle",color:C.green,icon:"🟢",
-        contrib:`ج.م ${smallContrib.toLocaleString()}/mo${boosted?` (ج.م 1,000 wages + ج.م ${smallBoost.toLocaleString()} fund)`:""}`,
+        contrib:`ج.م ${smallContrib.toLocaleString()}/mo`,
         payout:fmtEGP(smallPayout),
         payoutMonth:`${MONTHS_EN[payoutDate.month]} ${payoutDate.year}`,
-        boosted,
+        boosted:false,
         isCurrent,isNext,monthsAway,key,done:joined.has(key)
       });
     }
@@ -1356,7 +1343,7 @@ function App(){
 
           {/* LEFT */}
           <div style={{display:"flex",flexDirection:"column",gap:"0.8rem"}}>
-            <AlertPanel horizonMonths={horizon} bigBoostTimeline={bigBoostTimeline} smallBoostTimeline={smallBoostTimeline}/>
+            <AlertPanel horizonMonths={horizon} bigBoostTimeline={bigBoostTimeline} smallBoostTimeline={smallBoostTimeline} bigCircleAmounts={bigCircleAmounts} smallCircleAmounts={smallCircleAmounts}/>
 
             <BareeqTracker
               priceHistory={bareeqPriceHistory}
@@ -1386,13 +1373,6 @@ function App(){
               <Slider label="Egyptian Inflation" value={inflation} min={10} max={40} step={0.5} onChange={setInflation} fmt={v=>`${v}%`} color={C.red}/>
               <Slider label="USD/EGP Rate" value={usdRate} min={40} max={80} step={0.25} onChange={v=>{setUsdRate(v);setUsdSource("manual");}} fmt={v=>`${v} ج.م`} color={C.accent}/>
               <Slider label="Horizon" value={horizon} min={6} max={60} step={1} onChange={setHorizon} fmt={v=>`${v} months`} color={C.blue}/>
-            </div>
-
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
-              <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.5rem"}}>💡 Boost from Fund Returns</div>
-              <div style={{fontSize:"0.68rem",color:C.sub,marginBottom:"0.9rem",lineHeight:1.6}}>Pick a month to start pulling from fund returns to boost circles. Continues until changed.</div>
-              <BoostTimeline label="🔵 Big EGP Circle" color={C.blue} timeline={bigBoostTimeline} onChange={setBigBoostTimeline} maxBoost={6000} horizonMonths={horizon}/>
-              <BoostTimeline label="🟢 Small EGP Circle" color={C.green} timeline={smallBoostTimeline} onChange={setSmallBoostTimeline} maxBoost={2000} horizonMonths={horizon}/>
             </div>
 
             {/* Return Withdrawal Panel */}
