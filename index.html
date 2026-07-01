@@ -90,7 +90,7 @@ function getBoostAt(timeline,absIdx){
 const USD_PAYOUTS=new Set();
 for(let p=0;p<=12;p++){USD_PAYOUTS.add(2+p*20);USD_PAYOUTS.add(3+p*20);}
 
-function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],bigCircleAmounts,smallCircleAmounts,horizonMonths}){
+function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],wagesCapTimeline=[],bigCircleAmounts,smallCircleAmounts,horizonMonths}){
   const mRate=annualReturn/100/12,mInfl=inflation/100/12;
   const schedule=buildCircleSchedule(horizonMonths,bigCircleAmounts||DEFAULT_BIG_AMOUNTS,smallCircleAmounts||DEFAULT_SMALL_AMOUNTS);
   let balance=initialFund,totalDeposited=initialFund,inflBase=1;
@@ -102,14 +102,23 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const bigBoost=getBoostAt(bigBoostTimeline,i);
     const smallBoost=getBoostAt(smallBoostTimeline,i);
     const withdrawalPoint=withdrawalTimeline.slice().reverse().find(p=>p.absIdx<=i)||null;
-    const withdrawalPct=withdrawalPoint&&withdrawalPoint.mode==="pct"?withdrawalPoint.amount:0;
-    const withdrawalAmt=withdrawalPoint&&withdrawalPoint.mode==="egp"?withdrawalPoint.amount:0;
+
+    // Wages cap: total wages this month capped at user-defined amount
+    // Anything above cap is pulled from fund return
+    const wagesCap=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,i):Infinity;
+    const totalRawWage=bigWageBase+smallWageBase;
+    const totalWagePaid=wagesCap===Infinity?totalRawWage:Math.min(totalRawWage,wagesCap);
+    const wagesCapDrain=Math.max(0,totalRawWage-totalWagePaid); // extra pulled from fund
+
+    // Split cap drain proportionally between big and small
+    const capDrainBig=totalRawWage>0?wagesCapDrain*(bigWageBase/totalRawWage):0;
+    const capDrainSmall=totalRawWage>0?wagesCapDrain*(smallWageBase/totalRawWage):0;
 
     const bigTotalObligation=bigWageBase+(bigPayout>0?2000:0);
     const smallTotalObligation=smallWageBase+(smallPayout>0?1000:0);
-    const bigFundDrain=Math.min(bigBoost,bigTotalObligation);
-    const smallFundDrain=Math.min(smallBoost,smallTotalObligation);
-    const totalFundDrain=Math.min(bigFundDrain+smallFundDrain,balance*0.2);
+    const bigFundDrain=Math.min(bigBoost+capDrainBig,bigTotalObligation);
+    const smallFundDrain=Math.min(smallBoost+capDrainSmall,smallTotalObligation);
+    const totalFundDrain=Math.min(bigFundDrain+smallFundDrain,balance*0.3);
 
     const bigWageActual=Math.max(0,bigWageBase-Math.min(bigFundDrain,bigWageBase));
     const smallWageActual=Math.max(0,smallWageBase-Math.min(smallFundDrain,smallWageBase));
@@ -156,7 +165,7 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
       realValue:balance/inflBase,
       returnAmt,returnWithdrawn,withdrawalDisplay,
       withdrawalPct:withdrawalPoint?.mode==="pct"?withdrawalPoint.amount:0,
-      totalFundDrain,
+      totalFundDrain,wagesCapDrain,
       bigWage:bigWageActual,bigFund:bigFundDrain,
       smallWage:smallWageActual,smallFund:smallFundDrain,
       bigPayout:bigPayoutBoosted,smallPayout:smallPayoutBoosted,
@@ -1150,6 +1159,7 @@ function App(){
   const[bigBoostTimeline,setBigBoostTimeline]=useState(local.bigBoostTimeline||[]);
   const[smallBoostTimeline,setSmallBoostTimeline]=useState(local.smallBoostTimeline||[]);
   const[withdrawalTimeline,setWithdrawalTimeline]=useState(local.withdrawalTimeline||[]);
+  const[wagesCapTimeline,setWagesCapTimeline]=useState(local.wagesCapTimeline||[]);
   const[bareeqPriceHistory,setBareeqPriceHistory]=useState(local.bareeqPriceHistory||[]);
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
   const[bigCircleAmounts,setBigCircleAmounts]=useState(local.bigCircleAmounts||[...DEFAULT_BIG_AMOUNTS]);
@@ -1172,6 +1182,7 @@ function App(){
         if(data.bigBoostTimeline)setBigBoostTimeline(data.bigBoostTimeline);
         if(data.smallBoostTimeline)setSmallBoostTimeline(data.smallBoostTimeline);
         if(data.withdrawalTimeline)setWithdrawalTimeline(data.withdrawalTimeline);
+        if(data.wagesCapTimeline)setWagesCapTimeline(data.wagesCapTimeline);
         if(data.bareeqPriceHistory)setBareeqPriceHistory(data.bareeqPriceHistory);
         if(data.manualDeposits)setManualDeposits(data.manualDeposits);
         if(data.bigCircleAmounts)setBigCircleAmounts(data.bigCircleAmounts);
@@ -1194,7 +1205,7 @@ function App(){
     if(syncStatus==="loading")return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
-      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
+      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
       setSavedMsg("⟳ Saving...");
       await cloudSave(state);
       setSyncStatus("synced");
@@ -1231,7 +1242,7 @@ function App(){
 
   useEffect(()=>{fetchRate();},[]);
 
-  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizon]);
+  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizon]);
   const last=rows[rows.length-1]||{};
   const uniqueYears=[...new Set(rows.map(r=>r.year))];
 
@@ -1493,6 +1504,73 @@ function App(){
             </div>
 
             <ManualDepositsPanel deposits={manualDeposits} onChange={setManualDeposits} horizonMonths={horizon}/>
+
+            {/* Wages Cap Timeline Panel */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
+              <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.5rem"}}>💼 Max Wages Per Month</div>
+              <div style={{fontSize:"0.68rem",color:C.sub,marginBottom:"0.9rem",lineHeight:1.6}}>
+                Set a cap on how much you pay from wages for circles each month. Anything above the cap is covered automatically from fund returns.
+              </div>
+              {wagesCapTimeline.length===0&&<div style={{fontSize:"0.68rem",color:C.muted,fontStyle:"italic",marginBottom:"0.6rem"}}>No cap — paying full amount from wages</div>}
+              {wagesCapTimeline.map(p=>{
+                const{year,month}=absToDate(p.absIdx);
+                const ni=wagesCapTimeline.findIndex(x=>x.absIdx>p.absIdx);
+                const np=ni>=0?wagesCapTimeline[ni]:null;
+                const until=np?(()=>{const d=absToDate(np.absIdx-1);return`${MONTHS_EN[d.month]} ${d.year}`;})():"onwards";
+                return(<div key={p.absIdx} style={{display:"flex",alignItems:"center",gap:"0.4rem",marginBottom:"0.35rem",background:`${C.purple}0e`,borderRadius:7,padding:"0.38rem 0.65rem"}}>
+                  <div style={{flex:1}}>
+                    <span style={{fontSize:"0.7rem",color:C.sub}}>From </span>
+                    <span style={{fontSize:"0.72rem",color:C.text,fontWeight:700}}>{MONTHS_EN[month]} {year}</span>
+                    <span style={{fontSize:"0.68rem",color:C.muted}}> → {until}</span>
+                  </div>
+                  <span style={{fontSize:"0.75rem",color:C.purple,fontFamily:"monospace",fontWeight:700}}>max ج.م {p.amount.toLocaleString()}</span>
+                  <button onClick={()=>setWagesCapTimeline(wagesCapTimeline.filter(x=>x.absIdx!==p.absIdx))}
+                    style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem"}}>✕</button>
+                </div>);
+              })}
+              {(()=>{
+                const[selMonth,setSelMonth]=useState(0);
+                const[selCap,setSelCap]=useState(6000);
+                const[capError,setCapError]=useState("");
+                const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+                const addCap=()=>{
+                  if(selCap<0){setCapError("Must be 0 or more");return;}
+                  setCapError("");
+                  const updated=[...wagesCapTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selCap}].sort((a,b)=>a.absIdx-b.absIdx);
+                  setWagesCapTimeline(updated);
+                };
+                const activeCapForMonth=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,selMonth):null;
+                const sampleRow=rows.find(r=>r.absIdx===selMonth);
+                const totalWage=sampleRow?sampleRow.bigWage+sampleRow.smallWage+(sampleRow.wagesCapDrain||0):0;
+                const fundCovers=selCap!==null&&totalWage>0?Math.max(0,totalWage-selCap):0;
+                return(<>
+                  <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginTop:"0.5rem"}}>
+                    <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setCapError("");}}
+                      style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
+                      {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+                    </select>
+                    <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
+                      <input type="number" value={selCap} min={0} step={500}
+                        onChange={e=>{setSelCap(Number(e.target.value));setCapError("");}}
+                        style={{width:"100%",background:C.bg,border:`1px solid ${capError?C.red:C.border}`,borderRadius:7,color:C.purple,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
+                      <span style={{color:C.muted,fontSize:"0.7rem",flexShrink:0}}>ج.م</span>
+                    </div>
+                    <button onClick={addCap}
+                      style={{background:`${C.purple}18`,border:`1px solid ${C.purple}45`,borderRadius:7,color:C.purple,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                      + Set
+                    </button>
+                  </div>
+                  {fundCovers>0&&<div style={{fontSize:"0.68rem",color:C.purple,marginTop:"0.4rem"}}>
+                    📈 Fund covers ج.م {fundCovers.toLocaleString()} of circle obligations this month
+                  </div>}
+                  {capError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {capError}</div>}
+                  <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
+                    Active cap: <span style={{color:C.purple,fontWeight:700}}>{activeCapForMonth!==null?`ج.م ${activeCapForMonth.toLocaleString()}/mo`:"No cap"}</span>
+                    {" · "}Set 0 to pay everything from fund
+                  </div>
+                </>);
+              })()}
+            </div>
           </div>
 
           {/* RIGHT */}
@@ -1575,10 +1653,17 @@ function App(){
                     </tbody>
                     {/* Sticky summary tfoot */}
                     <tfoot style={{position:"sticky",bottom:0,zIndex:4}}>
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`,position:"sticky",left:0}}>📊 Monthly Summary</td></tr>
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`,position:"sticky",left:0}}>
+                        📊 Monthly Summary
+                        {wagesCapTimeline.length>0&&<span style={{fontSize:"0.58rem",color:C.purple,marginLeft:"0.5rem"}}>· 💼 Wages cap active</span>}
+                      </td></tr>
                       <tr>
-                        {stickyTd("💼 Total Wages Out",C.red)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigWage+r.smallWage:0;return(<td key={m.absIdx} style={{background:v>0?`${C.red}10`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.red:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
+                        {stickyTd("💼 From Wages",C.red)}
+                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigWage+r.smallWage:0;const cap=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,m.absIdx):Infinity;const capped=cap!==Infinity&&v<(r?r.bigWage+r.smallWage+r.wagesCapDrain:0)-1;return(<td key={m.absIdx} style={{background:v>0?`${C.red}10`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:capped?C.purple:v>0?C.red:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
+                      </tr>
+                      <tr>
+                        {stickyTd("📈 From Fund Cap",C.purple)}
+                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?Math.round(r.wagesCapDrain||0):0;return(<td key={m.absIdx} style={{background:v>0?`${C.purple}12`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.purple:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
                       </tr>
                       <tr>
                         {stickyTd("💰 Payouts → Fund",C.blue)}
