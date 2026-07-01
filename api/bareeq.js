@@ -5,25 +5,30 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
-    // r.jina.ai renders JS-heavy pages server-side and returns clean text,
-    // which lets us read the price even though AAIM's page loads it via JavaScript.
-    const targetUrl = "https://aaim.com.eg/ar/what-we-offer/funds/bareeq";
-    const response = await fetch(`https://r.jina.ai/${targetUrl}`, {
-      headers: { "X-Return-Format": "text" },
+    const response = await fetch("https://aaim.com.eg/en/what-we-offer/funds/bareeq", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
     });
 
     if (!response.ok) {
-      return res.status(500).json({ error: `Render service returned ${response.status}` });
+      return res.status(500).json({ error: `Page returned ${response.status}` });
     }
 
-    const text = await response.text();
+    const html = await response.text();
 
-    // Look for "السعر الحالى" followed by a decimal number
-    const priceMatch = text.match(/السعر الحالى[\s\S]{0,40}?([\d]+\.[\d]+)/);
-    const dateMatch = text.match(/أخر تحديث[\s\S]{0,40}?([^\n]+)/);
+    // Price appears as: "Current price :-\n\n207.18924\n\nEGP"
+    const priceMatch = html.match(/Current price\s*:-[\s\S]{0,200}?([\d]{3}\.[\d]+)/i);
+
+    // Last update appears as: "Last update 30 Jun, 2026"
+    const dateMatch = html.match(/Last update\s+([^\n<]+)/i);
 
     if (!priceMatch) {
-      return res.status(500).json({ error: "Could not find price in rendered page", rawText: text.slice(0, 500) });
+      return res.status(500).json({ 
+        error: "Could not find price on page",
+      });
     }
 
     const price = parseFloat(priceMatch[1]);
