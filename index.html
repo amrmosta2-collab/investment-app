@@ -862,8 +862,17 @@ IMPORTANT: Use the EXACT real numbers you find in searches, especially for the �
 
 
 // ── Bareeq Fund Unit Price Tracker ─────────────────────────────
-// Seed data point provided by user: 1.71% return for the past month, as of Jun 29 2026 price 207.08859
-const BAREEQ_SEED={date:"2026-06-29",price:207.08859,seedMonthlyPct:1.71};
+// Seed data: user-provided actual monthly returns
+// Jun 29: 1.71% monthly, Jun 30: 1.42% monthly (most recent = current seed)
+const BAREEQ_SEED={
+  date:"2026-06-30",
+  price:207.18924,
+  seedMonthlyPct:1.42, // most recent actual monthly return
+  history:[
+    {date:"2026-06-29",price:207.08859,monthlyPct:1.71},
+    {date:"2026-06-30",price:207.18924,monthlyPct:1.42},
+  ]
+};
 
 function annualizeFromTwoPoints(p1,p2){
   // p1, p2: {date, price} with date as ISO string, p1 older
@@ -935,8 +944,12 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
 
   // Combine seed + history for calculation, sorted
   const allPoints=React.useMemo(()=>{
-    const seedPoint={date:BAREEQ_SEED.date,price:BAREEQ_SEED.price,isSeed:true};
-    const merged=[seedPoint,...priceHistory.filter(p=>p.date!==BAREEQ_SEED.date)];
+    // Start with seed history points
+    const seedPoints=BAREEQ_SEED.history.map(h=>({...h,isSeed:true}));
+    // Merge with real fetched history, deduplicating by date (real data takes priority)
+    const fetchedDates=new Set(priceHistory.map(p=>p.date));
+    const filteredSeeds=seedPoints.filter(p=>!fetchedDates.has(p.date));
+    const merged=[...filteredSeeds,...priceHistory];
     return merged.sort((a,b)=>new Date(a.date)-new Date(b.date));
   },[priceHistory]);
 
@@ -1025,7 +1038,7 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
     </button>
 
     <div style={{fontSize:"0.6rem",color:C.muted,marginTop:"0.5rem",lineHeight:1.5}}>
-      Seeded with your reported 1.71% monthly return (Jun 29, 2026). Price auto-checked once per day from AAIM's official بريق page — accuracy improves as more days accumulate.
+      Seeded with actual monthly returns: 1.71% (Jun 29) → 1.42% (Jun 30). Price auto-checked daily from AAIM's official بريق page — accuracy improves as more days accumulate.
     </div>
   </div>);
 }
