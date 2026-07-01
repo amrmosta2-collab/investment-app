@@ -316,7 +316,7 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircle
 
   const curr=alerts.filter(a=>a.isCurrent&&!a.done);
   const next=alerts.filter(a=>a.isNext&&!a.done);
-  const upcoming=alerts.filter(a=>!a.isCurrent&&!a.isNext&&a.monthsAway<=12&&!a.done);
+  const upcoming=alerts.filter(a=>!a.isCurrent&&!a.isNext&&!a.done);
   const doneAlerts=alerts.filter(a=>a.done);
 
   const TickBtn=({a})=>(
@@ -374,7 +374,7 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircle
 
     {/* UPCOMING */}
     {upcoming.length>0&&(<div>
-      <div style={{fontSize:"0.67rem",color:C.muted,fontWeight:700,marginBottom:"0.5rem",textTransform:"uppercase",letterSpacing:"0.08em"}}>📅 Upcoming (12 months)</div>
+      <div style={{fontSize:"0.67rem",color:C.muted,fontWeight:700,marginBottom:"0.5rem",textTransform:"uppercase",letterSpacing:"0.08em"}}>📅 Upcoming ({horizonMonths} months)</div>
       <div style={{maxHeight:200,overflowY:"auto"}}>
         {upcoming.map((a,i)=>(<div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.35rem 0.5rem",borderRadius:7,marginBottom:"0.25rem",background:i%2===0?"rgba(255,255,255,0.015)":"transparent",gap:"0.4rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.4rem",flex:1,minWidth:0}}>
