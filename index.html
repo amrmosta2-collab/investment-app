@@ -43,18 +43,38 @@ const C={bg:"#080c14",card:"#0d1220",border:"#182033",accent:"#f5a623",green:"#2
 
 function absToDate(i){const t=3+i;return{year:2026+Math.floor(t/12),month:((t%12)+12)%12};}
 
-function buildCircleSchedule(horizonMonths){
-  const PAYOUT_SLOT=4,DURATION=6,BIG_CONTRIB=2000,SMALL_CONTRIB=1000;
+// Default circle amounts (index = circle number in sequence)
+const DEFAULT_BIG_AMOUNTS=Array.from({length:50},(_,i)=>i<4?2000:i<8?2500:3000);
+const DEFAULT_SMALL_AMOUNTS=Array.from({length:50},(_,i)=>i<3?1000:i<7?2000:2500);
+
+function buildCircleSchedule(horizonMonths,bigAmounts,smallAmounts){
+  const PAYOUT_SLOT=4,DURATION=6;
   const result=[];
+  // Build index maps: for each circle start absIdx → contribution amount
+  const bigCircleMap={};
+  let bi=0;
+  for(let start=-2;start<horizonMonths;start+=2){bigCircleMap[start]=bigAmounts[bi]||bigAmounts[bigAmounts.length-1];bi++;}
+  const smallCircleMap={};
+  let si=0;
+  for(let start=1;start<horizonMonths;start+=2){smallCircleMap[start]=smallAmounts[si]||smallAmounts[smallAmounts.length-1];si++;}
+
   for(let i=0;i<horizonMonths;i++){
     let bigWage=0,bigPayout=0,smallWage=0,smallPayout=0;
     for(let start=-2;start<=i;start+=2){
       const m=i-start+1;
-      if(m>=1&&m<=DURATION){m===PAYOUT_SLOT?bigPayout+=10000:bigWage+=BIG_CONTRIB;}
+      const amt=bigCircleMap[start]||2000;
+      if(m>=1&&m<=DURATION){
+        if(m===PAYOUT_SLOT)bigPayout+=amt*5; // payout = amt × 5
+        else bigWage+=amt;
+      }
     }
     for(let start=1;start<=i;start+=2){
       const m=i-start+1;
-      if(m>=1&&m<=DURATION){m===PAYOUT_SLOT?smallPayout+=5000:smallWage+=SMALL_CONTRIB;}
+      const amt=smallCircleMap[start]||1000;
+      if(m>=1&&m<=DURATION){
+        if(m===PAYOUT_SLOT)smallPayout+=amt*5;
+        else smallWage+=amt;
+      }
     }
     result.push({absIdx:i,bigWage,bigPayout,smallWage,smallPayout});
   }
@@ -70,9 +90,9 @@ function getBoostAt(timeline,absIdx){
 const USD_PAYOUTS=new Set();
 for(let p=0;p<=12;p++){USD_PAYOUTS.add(2+p*20);USD_PAYOUTS.add(3+p*20);}
 
-function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],horizonMonths}){
+function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],bigCircleAmounts,smallCircleAmounts,horizonMonths}){
   const mRate=annualReturn/100/12,mInfl=inflation/100/12;
-  const schedule=buildCircleSchedule(horizonMonths);
+  const schedule=buildCircleSchedule(horizonMonths,bigCircleAmounts||DEFAULT_BIG_AMOUNTS,smallCircleAmounts||DEFAULT_SMALL_AMOUNTS);
   let balance=initialFund,totalDeposited=initialFund,inflBase=1;
   const rows=[];
   for(let i=0;i<horizonMonths;i++){
@@ -862,12 +882,14 @@ IMPORTANT: Use the EXACT real numbers you find in searches, especially for the �
 
 
 // ── Bareeq Fund Unit Price Tracker ─────────────────────────────
-// Seed data: user-provided actual monthly returns
-// Jun 29: 1.71% monthly, Jun 30: 1.42% monthly (most recent = current seed)
+// Seed data from Thndr app (Jun 30 2026):
+// Actual returns past year: 23.27% (annualized, per Thndr)
+// Monthly returns: 1.71% on Jun 29, 1.42% on Jun 30
 const BAREEQ_SEED={
   date:"2026-06-30",
   price:207.18924,
-  seedMonthlyPct:1.42, // most recent actual monthly return
+  seedMonthlyPct:1.42,      // Jun 30 actual monthly return
+  seedAnnualPct:23.27,      // full year annualized from Thndr app ✅
   history:[
     {date:"2026-06-29",price:207.08859,monthlyPct:1.71},
     {date:"2026-06-30",price:207.18924,monthlyPct:1.42},
@@ -958,8 +980,8 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
   const calc=allPoints.length>=2?annualizeFromTwoPoints(oldest,latest):null;
 
   const MIN_DAYS_FOR_REAL_CALC=5;
-  const seedAnnualPct=(Math.pow(1+BAREEQ_SEED.seedMonthlyPct/100,12)-1)*100;
-  const seedMonthlyPct=BAREEQ_SEED.seedMonthlyPct;
+  const seedAnnualPct=BAREEQ_SEED.seedAnnualPct; // 23.27% from Thndr app
+  const seedMonthlyPct=BAREEQ_SEED.seedMonthlyPct; // 1.42% most recent monthly
 
   const daysTracked=calc?Math.round(calc.days):0;
   const hasEnoughData=calc&&daysTracked>=MIN_DAYS_FOR_REAL_CALC;
@@ -1083,6 +1105,47 @@ function loadLocalState(){
   try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):null;}catch{return null;}
 }
 
+// ── Circle Schedule Table Row ─────────────────────────────────
+function CircleTableRow({circle,months,onAmountChange,color}){
+  const[editing,setEditing]=useState(false);
+  const[tempVal,setTempVal]=useState(circle.amount);
+  const commit=()=>{
+    const val=parseInt(tempVal);
+    if(!isNaN(val)&&val>0)onAmountChange(circle.idx,val);
+    setEditing(false);
+  };
+  const hasActive=months.some(m=>m.absIdx>=circle.start&&m.absIdx<=circle.end);
+  if(!hasActive)return null;
+  return(<tr>
+    <td style={{padding:"0.28rem 0.5rem",fontSize:"0.63rem",color,whiteSpace:"nowrap",background:C.card,borderBottom:`1px solid ${C.border}`,position:"sticky",left:0,zIndex:2,minWidth:105}}>
+      {editing?(
+        <div style={{display:"flex",gap:"0.2rem",alignItems:"center"}}>
+          <input type="number" value={tempVal} onChange={e=>setTempVal(e.target.value)}
+            onBlur={commit} onKeyDown={e=>e.key==="Enter"&&commit()} autoFocus
+            style={{width:72,background:C.bg,border:`1px solid ${color}`,borderRadius:4,color,padding:"0.15rem 0.3rem",fontSize:"0.63rem",fontFamily:"monospace",outline:"none"}}/>
+        </div>
+      ):(
+        <div style={{cursor:"pointer"}} onClick={()=>{setEditing(true);setTempVal(circle.amount);}}>
+          <span style={{fontFamily:"monospace",fontWeight:700}}>ج.م {circle.amount.toLocaleString()}</span>
+          <span style={{color:C.muted,marginLeft:"0.25rem",fontSize:"0.58rem"}}>✎</span>
+        </div>
+      )}
+      <div style={{fontSize:"0.55rem",color:C.muted,marginTop:"0.08rem"}}>→ {fmtEGP(circle.payout)}</div>
+    </td>
+    {months.map(m=>{
+      const active=m.absIdx>=circle.start&&m.absIdx<=circle.end;
+      const isPay=m.absIdx===circle.payoutAbsIdx;
+      if(!active)return <td key={m.absIdx} style={{background:C.bg,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,minWidth:52}}/>;
+      return(<td key={m.absIdx} style={{background:isPay?color:`${color}18`,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}25`,padding:"0.25rem 0.15rem",textAlign:"center",minWidth:52}}>
+        <div style={{fontSize:"0.63rem",fontFamily:"monospace",fontWeight:isPay?900:500,color:isPay?"#fff":color}}>
+          {isPay?"★":circle.amount.toLocaleString()}
+        </div>
+        {isPay&&<div style={{fontSize:"0.52rem",color:"rgba(255,255,255,0.85)",marginTop:"0.08rem"}}>{circle.payout.toLocaleString()}</div>}
+      </td>);
+    })}
+  </tr>);
+}
+
 function App(){
   const local=loadLocalState()||{};
   const[annualReturn,setAnnualReturn]=useState(local.annualReturn||21);
@@ -1097,6 +1160,8 @@ function App(){
   const[withdrawalTimeline,setWithdrawalTimeline]=useState(local.withdrawalTimeline||[]);
   const[bareeqPriceHistory,setBareeqPriceHistory]=useState(local.bareeqPriceHistory||[]);
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
+  const[bigCircleAmounts,setBigCircleAmounts]=useState(local.bigCircleAmounts||[...DEFAULT_BIG_AMOUNTS]);
+  const[smallCircleAmounts,setSmallCircleAmounts]=useState(local.smallCircleAmounts||[...DEFAULT_SMALL_AMOUNTS]);
   const[initialFund,setInitialFund]=useState(local.initialFund||40000);
   const[fundInput,setFundInput]=useState(String(local.initialFund||40000));
   const[goals,setGoals]=useState(local.goals||[]);
@@ -1117,6 +1182,8 @@ function App(){
         if(data.withdrawalTimeline)setWithdrawalTimeline(data.withdrawalTimeline);
         if(data.bareeqPriceHistory)setBareeqPriceHistory(data.bareeqPriceHistory);
         if(data.manualDeposits)setManualDeposits(data.manualDeposits);
+        if(data.bigCircleAmounts)setBigCircleAmounts(data.bigCircleAmounts);
+        if(data.smallCircleAmounts)setSmallCircleAmounts(data.smallCircleAmounts);
         if(data.initialFund){setInitialFund(data.initialFund);setFundInput(String(data.initialFund));}
         if(data.goals)setGoals(data.goals);
         if(data.joined)localStorage.setItem("inv_joined",JSON.stringify(data.joined));
@@ -1135,7 +1202,7 @@ function App(){
     if(syncStatus==="loading")return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
-      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
+      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
       setSavedMsg("⟳ Saving...");
       await cloudSave(state);
       setSyncStatus("synced");
@@ -1143,7 +1210,7 @@ function App(){
       setTimeout(()=>setSavedMsg(""),2500);
     },1200);
     return()=>{if(saveTimer.current)clearTimeout(saveTimer.current);};
-  },[annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,initialFund,goals]);
+  },[annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals]);
 
   // Fetch live USD/EGP from free public API
   const fetchRate=useCallback(async()=>{
@@ -1172,7 +1239,7 @@ function App(){
 
   useEffect(()=>{fetchRate();},[]);
 
-  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,horizon]);
+  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizon]);
   const last=rows[rows.length-1]||{};
   const uniqueYears=[...new Set(rows.map(r=>r.year))];
 
@@ -1446,7 +1513,7 @@ function App(){
           {/* RIGHT */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
             <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,padding:"0 0.6rem",overflowX:"auto"}}>
-              {[["calendar","📅 Monthly"],["cashflow","💸 Cash Flow"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
+              {[["calendar","📅 Monthly"],["schedule","📊 Schedule"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
                 <button key={t} style={tabStyle(t)} onClick={()=>setActiveTab(t)}>{l}</button>
               ))}
             </div>
@@ -1480,30 +1547,69 @@ function App(){
             </div>)}
 
             {/* Cash Flow */}
-            {activeTab==="cashflow"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
-              <div style={{display:"grid",gridTemplateColumns:"75px 75px 75px 75px 85px 75px 75px",gap:"0.15rem",padding:"0.45rem 0.9rem",fontSize:"0.56rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
-                <span>Month</span><span style={{textAlign:"right"}}>Big Out</span><span style={{textAlign:"right"}}>Small Out</span><span style={{textAlign:"right"}}>Total Out</span><span style={{textAlign:"right"}}>💸 Withdrawn</span><span style={{textAlign:"right"}}>Payouts In</span><span style={{textAlign:"right"}}>Net</span>
-              </div>
-              {rows.map((r,i)=>{
-                const out=r.bigWage+r.smallWage,tin=r.bigPayout+r.smallPayout+r.usdIn+r.manualIn,net=tin-out-r.returnWithdrawn;
-                return(<div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"75px 75px 75px 75px 85px 75px 75px",gap:"0.15rem",padding:"0.4rem 0.9rem",borderBottom:`1px solid ${C.border}12`,alignItems:"center",transition:"background 0.15s"}}>
-                  <div><div style={{fontSize:"0.76rem",fontWeight:600,color:C.text}}>{MONTHS_EN[r.month]}</div><div style={{fontSize:"0.58rem",color:C.muted}}>{r.year}</div></div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.68rem",color:r.bigWage>0?C.blue:C.muted}}>{r.bigWage>0?fmtEGP(r.bigWage):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.68rem",color:r.smallWage>0?C.teal:C.muted}}>{r.smallWage>0?fmtEGP(r.smallWage):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.68rem",color:out>0?C.red:C.muted,fontWeight:700}}>{out>0?fmtEGP(out):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.68rem",color:r.returnWithdrawn>0?C.accent:C.muted,fontWeight:700}}>
-                    {r.returnWithdrawn>0?<span title={`${r.withdrawalPct}% of ج.م ${Math.round(r.returnAmt).toLocaleString()} return`}>{fmtEGP(r.returnWithdrawn)}</span>:"—"}
-                  </div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.68rem",color:tin>0?C.green:C.muted,fontWeight:700}}>{tin>0?fmtEGP(tin):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:net>0?C.green:net<0?C.red:C.muted,fontWeight:800}}>{net===0?"—":`${net>0?"+":""}${fmtEGP(Math.abs(net))}`}</div>
-                </div>);
-              })}
-              <div style={{padding:"0.6rem 0.9rem",borderTop:`1px solid ${C.border}`,display:"flex",gap:"1.2rem",fontSize:"0.65rem",flexWrap:"wrap"}}>
-                <span style={{color:C.red}}>🔴 Total Out = wages</span>
-                <span style={{color:C.accent}}>💸 Withdrawn = cash taken from return</span>
-                <span style={{color:C.green}}>🟢 Payouts In = circle payouts to fund</span>
-              </div>
-            </div>)}
+            {/* Schedule Table */}
+            {activeTab==="schedule"&&(()=>{
+              // Build circle data for the table
+              const tableMonths=Array.from({length:horizon+2},(_,i)=>({
+                absIdx:i-2,
+                label:`${MONTHS_EN[((3+i-2)%12+12)%12]} ${2026+Math.floor((3+i-2)/12)}`,
+                month:((3+i-2)%12+12)%12,
+              }));
+              const bigCircles=[];let bi=0;
+              for(let start=-2;start<horizon;start+=2){
+                bigCircles.push({idx:bi,start,end:start+5,amount:bigCircleAmounts[bi]||2000,payoutAbsIdx:start+3,payout:(bigCircleAmounts[bi]||2000)*5});
+                bi++;
+              }
+              const smallCircles=[];let si=0;
+              for(let start=1;start<horizon;start+=2){
+                smallCircles.push({idx:si,start,end:start+5,amount:smallCircleAmounts[si]||1000,payoutAbsIdx:start+3,payout:(smallCircleAmounts[si]||1000)*5});
+                si++;
+              }
+              // Monthly summary from rows
+              const stickyTd=(label,color)=>(
+                <td style={{background:C.card,padding:"0.28rem 0.5rem",fontSize:"0.6rem",color,position:"sticky",left:0,zIndex:2,borderBottom:`1px solid ${C.border}`,minWidth:105,whiteSpace:"nowrap",fontWeight:700}}>{label}</td>
+              );
+              return(<div style={{maxHeight:560,overflowY:"auto"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{borderCollapse:"collapse",width:"100%"}}>
+                    <thead>
+                      <tr>
+                        <th style={{background:C.card,padding:"0.4rem 0.5rem",fontSize:"0.6rem",color:C.muted,textAlign:"left",position:"sticky",left:0,zIndex:3,borderBottom:`2px solid ${C.border}`,minWidth:105}}>Circle / Month</th>
+                        {tableMonths.map(m=>(
+                          <th key={m.absIdx} style={{background:C.card,padding:"0.3rem 0.1rem",fontSize:"0.56rem",color:C.sub,textAlign:"center",borderBottom:`2px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,minWidth:52,whiteSpace:"nowrap"}}>
+                            {MONTHS_EN[m.month]}<br/><span style={{color:C.muted,fontSize:"0.48rem"}}>{2026+Math.floor((3+m.absIdx)/12)}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`}}>🔵 Big EGP Circles — click amount to edit</td></tr>
+                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...bigCircleAmounts];n[idx]=val;setBigCircleAmounts(n);}} color={C.blue}/>)}
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`}}>🟢 Small EGP Circles — click amount to edit</td></tr>
+                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{const n=[...smallCircleAmounts];n[idx]=val;setSmallCircleAmounts(n);}} color={C.green}/>)}
+                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`}}>📊 Monthly Summary</td></tr>
+                      <tr>
+                        {stickyTd("💼 Total Wages Out",C.red)}
+                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigWage+r.smallWage:0;return(<td key={m.absIdx} style={{background:v>0?`${C.red}10`:C.bg,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.red:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
+                      </tr>
+                      <tr>
+                        {stickyTd("💰 Payouts → Fund",C.green)}
+                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigPayout+r.smallPayout+r.usdIn+r.manualIn:0;return(<td key={m.absIdx} style={{background:v>0?`${C.green}10`:C.bg,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.green:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
+                      </tr>
+                      <tr>
+                        {stickyTd("⚡ Net Cash Flow",C.accent)}
+                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const tin=r?r.bigPayout+r.smallPayout+r.usdIn+r.manualIn:0;const out=r?r.bigWage+r.smallWage:0;const net=tin-out-(r?r.returnWithdrawn:0);return(<td key={m.absIdx} style={{background:net>0?`${C.green}18`:net<0?`${C.red}12`:C.bg,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.65rem",fontFamily:"monospace",color:net>0?C.green:net<0?C.red:C.muted,borderRight:`1px solid ${C.border}15`,fontWeight:800}}>{net===0?"—":`${net>0?"+":""}${Math.round(Math.abs(net)).toLocaleString()}`}</td>);})}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{padding:"0.5rem 0.9rem",borderTop:`1px solid ${C.border}`,display:"flex",gap:"1rem",fontSize:"0.63rem",flexWrap:"wrap"}}>
+                  <span style={{color:C.blue}}>Filled = paying · ★ = payout month</span>
+                  <span style={{color:C.sub}}>✎ Click left label to change circle amount</span>
+                  <span style={{color:C.green}}>Green net = positive · </span><span style={{color:C.red}}>Red = more going out</span>
+                </div>
+              </div>);
+            })()}
 
             {/* Income Source */}
             {activeTab==="income"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
