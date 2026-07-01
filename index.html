@@ -944,49 +944,42 @@ function BareeqTracker({priceHistory,onUpdateHistory,onApplyRate,currentAnnualRe
   const oldest=allPoints[0];
   const calc=allPoints.length>=2?annualizeFromTwoPoints(oldest,latest):null;
 
-  const MIN_DAYS_FOR_REAL_CALC=5;
+  const MIN_DAYS_FOR_REAL_CALC=1; // Use real data as soon as we have 2 points
   const seedAnnualPct=(Math.pow(1+BAREEQ_SEED.seedMonthlyPct/100,12)-1)*100;
-  // Use real calculation only once we have enough days tracked to avoid single-day noise.
-  // Below the threshold, blend toward the seed estimate so the number doesn't jump wildly.
-  const hasEnoughData=calc&&calc.days>=MIN_DAYS_FOR_REAL_CALC;
-  const displayAnnualPct=hasEnoughData?calc.annualPct:seedAnnualPct;
+  const seedMonthlyPct=BAREEQ_SEED.seedMonthlyPct;
+
+  // Always use real calculation if we have 2+ points, even just 1 day apart
+  const hasRealData=calc&&allPoints.length>=2&&calc.days>=1;
+  const displayAnnualPct=hasRealData?calc.annualPct:seedAnnualPct;
+
+  // Monthly return: derive from annualized if we have real data, else seed
+  const displayMonthlyPct=hasRealData
+    ?(Math.pow(1+calc.annualPct/100,1/12)-1)*100
+    :seedMonthlyPct;
+
+  // If we have 30+ days, override monthly with actual 30-day price change
+  const getRealMonthlyReturn=()=>{
+    if(!hasRealData||daysTracked<1)return{pct:displayMonthlyPct,source:"seed estimate"};
+    if(daysTracked>=30){
+      const latestDate=new Date(latest.date);
+      const targetDate=new Date(latestDate);targetDate.setDate(targetDate.getDate()-30);
+      const point30=allPoints.reduce((prev,curr)=>{
+        return Math.abs(new Date(curr.date)-targetDate)<Math.abs(new Date(prev.date)-targetDate)?curr:prev;
+      });
+      const pct=((latest.price-point30.price)/point30.price)*100;
+      return{pct,source:"actual 30-day"};
+    }
+    return{pct:displayMonthlyPct,source:`from ${daysTracked}-day data`};
+  };
+  const{pct:monthlyReturn,source:monthlySource}=getRealMonthlyReturn();
 
   const daysTracked=calc?Math.round(calc.days):0;
-  const dataQuality=daysTracked<MIN_DAYS_FOR_REAL_CALC?"low":daysTracked<30?"medium":"high";
+  const dataQuality=!hasRealData?"low":daysTracked<30?"medium":"high";
   const qualityColor={low:C.red,medium:C.accent,high:C.green}[dataQuality];
-  const qualityLabel={
-    low:daysTracked===0?"Based on seed estimate":`Collecting data... ${daysTracked}/${MIN_DAYS_FOR_REAL_CALC} days (using seed estimate)`,
-    medium:`Based on ${daysTracked} days tracked`,
-    high:`Based on ${daysTracked} days — reliable`
-  }[dataQuality];
-
-  // Monthly return calculation
-  // If we have 30+ days: use actual price 30 days ago vs latest
-  // If we have 5-29 days: derive from annualized rate
-  // If under 5 days: use seed 1.71%
-  const getMonthlyReturn=()=>{
-    if(daysTracked>=30){
-      // Find a price point ~30 days before latest
-      const latestDate=new Date(latest.date);
-      const targetDate=new Date(latestDate);
-      targetDate.setDate(targetDate.getDate()-30);
-      // Find closest point to 30 days ago
-      const point30=allPoints.reduce((prev,curr)=>{
-        const prevDiff=Math.abs(new Date(prev.date)-targetDate);
-        const currDiff=Math.abs(new Date(curr.date)-targetDate);
-        return currDiff<prevDiff?curr:prev;
-      });
-      return ((latest.price-point30.price)/point30.price)*100;
-    } else if(hasEnoughData){
-      // Derive from annualized: (1 + annual/100)^(1/12) - 1
-      return (Math.pow(1+displayAnnualPct/100, 1/12)-1)*100;
-    } else {
-      // Use seed
-      return BAREEQ_SEED.seedMonthlyPct;
-    }
-  };
-  const monthlyReturn=getMonthlyReturn();
-  const monthlySource=daysTracked>=30?"actual 30-day":hasEnoughData?`from ${daysTracked}-day data`:"seed estimate";
+  const qualityLabel=!hasRealData
+    ?"seed estimate"
+    :daysTracked<30?`${daysTracked} day${daysTracked!==1?"s":""} tracked`
+    :`${daysTracked} days — reliable`;
 
   const sparkData=allPoints.map(p=>p.price);
 
