@@ -87,10 +87,14 @@ function getBoostAt(timeline,absIdx){
   return val;
 }
 
-const USD_PAYOUTS=new Set();
-for(let p=0;p<=12;p++){USD_PAYOUTS.add(2+p*20);USD_PAYOUTS.add(3+p*20);}
+// Default USD payout months (absIdx values) — user can override these
+function getDefaultUsdPayouts(){
+  const s=new Set();
+  for(let p=0;p<=12;p++){s.add(2+p*20);s.add(3+p*20);}
+  return [...s].sort((a,b)=>a-b);
+}
 
-function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],wagesCapTimeline=[],bigCircleAmounts,smallCircleAmounts,horizonMonths}){
+function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,manualDeposits=[],withdrawalTimeline=[],wagesCapTimeline=[],usdPayoutMonths,bigCircleAmounts,smallCircleAmounts,horizonMonths}){
   const mRate=annualReturn/100/12,mInfl=inflation/100/12;
   const schedule=buildCircleSchedule(horizonMonths,bigCircleAmounts||DEFAULT_BIG_AMOUNTS,smallCircleAmounts||DEFAULT_SMALL_AMOUNTS);
   let balance=initialFund,totalDeposited=initialFund,inflBase=1;
@@ -155,7 +159,8 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     // 3. Drain circle boosts
     balance-=totalFundDrain;
 
-    const usdIn=USD_PAYOUTS.has(i)?2000*usdRate:0;
+    const usdPayoutSet=new Set(usdPayoutMonths||getDefaultUsdPayouts());
+    const usdIn=usdPayoutSet.has(i)?2000*usdRate:0;
     const manualIn=manualDeposits.filter(d=>d.absIdx===i).reduce((s,d)=>s+d.egpAmount,0);
     const totalIn=bigPayoutBoosted+smallPayoutBoosted+usdIn+manualIn;
     balance+=totalIn;totalDeposited+=totalIn;
@@ -1160,6 +1165,7 @@ function App(){
   const[smallBoostTimeline,setSmallBoostTimeline]=useState(local.smallBoostTimeline||[]);
   const[withdrawalTimeline,setWithdrawalTimeline]=useState(local.withdrawalTimeline||[]);
   const[wagesCapTimeline,setWagesCapTimeline]=useState(local.wagesCapTimeline||[]);
+  const[usdPayoutMonths,setUsdPayoutMonths]=useState(local.usdPayoutMonths||getDefaultUsdPayouts());
   const[bareeqPriceHistory,setBareeqPriceHistory]=useState(local.bareeqPriceHistory||[]);
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
   const[bigCircleAmounts,setBigCircleAmounts]=useState(local.bigCircleAmounts||[...DEFAULT_BIG_AMOUNTS]);
@@ -1183,6 +1189,7 @@ function App(){
         if(data.smallBoostTimeline)setSmallBoostTimeline(data.smallBoostTimeline);
         if(data.withdrawalTimeline)setWithdrawalTimeline(data.withdrawalTimeline);
         if(data.wagesCapTimeline)setWagesCapTimeline(data.wagesCapTimeline);
+        if(data.usdPayoutMonths)setUsdPayoutMonths(data.usdPayoutMonths);
         if(data.bareeqPriceHistory)setBareeqPriceHistory(data.bareeqPriceHistory);
         if(data.manualDeposits)setManualDeposits(data.manualDeposits);
         if(data.bigCircleAmounts)setBigCircleAmounts(data.bigCircleAmounts);
@@ -1205,7 +1212,7 @@ function App(){
     if(syncStatus==="loading")return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
-      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
+      const state={annualReturn,inflation,usdRate,horizon,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,usdPayoutMonths,bareeqPriceHistory,manualDeposits,bigCircleAmounts,smallCircleAmounts,initialFund,goals,joined:JSON.parse(localStorage.getItem("inv_joined")||"[]")};
       setSavedMsg("⟳ Saving...");
       await cloudSave(state);
       setSyncStatus("synced");
@@ -1242,7 +1249,7 @@ function App(){
 
   useEffect(()=>{fetchRate();},[]);
 
-  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizon]);
+  const rows=useMemo(()=>simulate({initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,usdPayoutMonths,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizonMonths:horizon}),[initialFund,annualReturn,inflation,usdRate,bigBoostTimeline,smallBoostTimeline,withdrawalTimeline,wagesCapTimeline,usdPayoutMonths,manualDeposits,bigCircleAmounts,smallCircleAmounts,horizon]);
   const last=rows[rows.length-1]||{};
   const uniqueYears=[...new Set(rows.map(r=>r.year))];
 
@@ -1582,32 +1589,62 @@ function App(){
             </div>
 
             {/* Monthly Calendar */}
-            {activeTab==="calendar"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
-              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
-                <span>Month</span><span>Payouts → Fund</span><span style={{textAlign:"right"}}>Balance</span>
-              </div>
-              {rows.map((r,i)=>{
-                const has=r.bigPayout>0||r.smallPayout>0||r.usdIn>0||r.manualIn>0;
-                return(<div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",borderBottom:`1px solid ${C.border}15`,alignItems:"center",background:has?"rgba(255,255,255,0.012)":"transparent",transition:"background 0.15s"}}>
-                  <div>
-                    <div style={{fontSize:"0.78rem",fontWeight:has?700:400,color:has?C.text:C.muted}}>{MONTHS_EN[r.month]}</div>
-                    <div style={{fontSize:"0.6rem",color:C.muted}}>{r.year}</div>
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem"}}>
-                    {r.bigPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.blue}12`,border:`1px solid ${C.blue}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.blue}}>🔵 {fmtEGP(r.bigPayout)}</span>}
-                    {r.smallPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.green}12`,border:`1px solid ${C.green}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.green}}>🟢 {fmtEGP(r.smallPayout)}</span>}
-                    {r.usdIn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💵 {fmtEGP(r.usdIn)}</span>}
-                    {r.manualIn>0&&<span style={{fontSize:"0.65rem",background:`${C.teal}12`,border:`1px solid ${C.teal}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.teal}}>➕ {fmtEGP(r.manualIn)}</span>}
-                    {r.returnWithdrawn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💸 {fmtEGP(r.returnWithdrawn)} ({r.withdrawalDisplay})</span>}
-                    {!has&&!r.returnWithdrawn&&<span style={{fontSize:"0.65rem",color:C.muted}}>—</span>}
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:"0.78rem",fontFamily:"monospace",fontWeight:700,color:C.accent}}>{fmtEGP(r.balance)}</div>
-                    <div style={{fontSize:"0.58rem",color:C.muted}}>+{fmtEGP(r.returnAmt)}</div>
-                  </div>
-                </div>);
-              })}
-            </div>)}
+            {activeTab==="calendar"&&(()=>{
+              const[draggedAbsIdx,setDraggedAbsIdx]=useState(null);
+              const[dropTarget,setDropTarget]=useState(null);
+
+              const handleDrop=(targetAbsIdx)=>{
+                if(draggedAbsIdx===null||draggedAbsIdx===targetAbsIdx)return;
+                setUsdPayoutMonths(prev=>{
+                  const updated=prev.filter(m=>m!==draggedAbsIdx);
+                  if(!updated.includes(targetAbsIdx))updated.push(targetAbsIdx);
+                  return updated.sort((a,b)=>a-b);
+                });
+                setDraggedAbsIdx(null);
+                setDropTarget(null);
+              };
+
+              return(<div style={{maxHeight:560,overflowY:"auto"}}>
+                <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
+                  <span>Month</span><span>Payouts → Fund <span style={{color:C.accent,textTransform:"none",fontSize:"0.55rem"}}>· drag 💵 to move</span></span><span style={{textAlign:"right"}}>Balance</span>
+                </div>
+                {rows.map((r,i)=>{
+                  const has=r.bigPayout>0||r.smallPayout>0||r.usdIn>0||r.manualIn>0;
+                  const isDropTarget=dropTarget===r.absIdx&&draggedAbsIdx!==null;
+                  return(<div key={i} className="cal-row"
+                    onDragOver={e=>{e.preventDefault();setDropTarget(r.absIdx);}}
+                    onDragLeave={()=>setDropTarget(null)}
+                    onDrop={()=>handleDrop(r.absIdx)}
+                    style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",borderBottom:`1px solid ${C.border}15`,alignItems:"center",background:isDropTarget?`${C.accent}18`:has?"rgba(255,255,255,0.012)":"transparent",outline:isDropTarget?`2px dashed ${C.accent}`:"none",outlineOffset:"-2px",transition:"background 0.15s"}}>
+                    <div>
+                      <div style={{fontSize:"0.78rem",fontWeight:has?700:400,color:has?C.text:C.muted}}>{MONTHS_EN[r.month]}</div>
+                      <div style={{fontSize:"0.6rem",color:C.muted}}>{r.year}</div>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem"}}>
+                      {r.bigPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.blue}12`,border:`1px solid ${C.blue}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.blue}}>🔵 {fmtEGP(r.bigPayout)}</span>}
+                      {r.smallPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.green}12`,border:`1px solid ${C.green}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.green}}>🟢 {fmtEGP(r.smallPayout)}</span>}
+                      {r.usdIn>0&&(
+                        <span
+                          draggable
+                          onDragStart={e=>{setDraggedAbsIdx(r.absIdx);e.dataTransfer.effectAllowed="move";}}
+                          onDragEnd={()=>{setDraggedAbsIdx(null);setDropTarget(null);}}
+                          style={{fontSize:"0.65rem",background:draggedAbsIdx===r.absIdx?`${C.accent}35`:`${C.accent}12`,border:`1px solid ${C.accent}45`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent,cursor:"grab",userSelect:"none",opacity:draggedAbsIdx===r.absIdx?0.5:1,transition:"all 0.15s"}}
+                          title="Drag to move this USD payout to another month">
+                          💵 {fmtEGP(r.usdIn)} ⠿
+                        </span>
+                      )}
+                      {r.manualIn>0&&<span style={{fontSize:"0.65rem",background:`${C.teal}12`,border:`1px solid ${C.teal}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.teal}}>➕ {fmtEGP(r.manualIn)}</span>}
+                      {r.returnWithdrawn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💸 {fmtEGP(r.returnWithdrawn)} ({r.withdrawalDisplay})</span>}
+                      {!has&&!r.returnWithdrawn&&<span style={{fontSize:"0.65rem",color:isDropTarget?C.accent:C.muted}}>{isDropTarget?"Drop here →":"—"}</span>}
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:"0.78rem",fontFamily:"monospace",fontWeight:700,color:C.accent}}>{fmtEGP(r.balance)}</div>
+                      <div style={{fontSize:"0.58rem",color:C.muted}}>+{fmtEGP(r.returnAmt)}</div>
+                    </div>
+                  </div>);
+                })}
+              </div>);
+            })()}
 
             {/* Cash Flow */}
             {/* Schedule Table */}
