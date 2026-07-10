@@ -437,68 +437,75 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircle
 }
 
 function ManualDepositsPanel({deposits,onChange,horizonMonths}){
-  const[selMonth,setSelMonth]=useState(0);
-  const[selAmount,setSelAmount]=useState(0);
-  const[selLabel,setSelLabel]=useState("");
-  const[selCurrency,setSelCurrency]=useState("EGP");
-  const[selUsdRate,setSelUsdRate]=useState(49);
-  const monthOptions=Array.from({length:horizonMonths},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
-  const ICONS={"Bonus":"🎁","Salary":"💼","Gift":"🎀","Side Income":"💡","Other":"💰"};
-  const addDeposit=()=>{
-    if(!selAmount||selAmount<=0)return;
-    const egpAmount=selCurrency==="USD"?selAmount*selUsdRate:selAmount;
-    const{year,month}=absToDate(selMonth);
-    onChange([...deposits,{id:Date.now(),absIdx:selMonth,year,month,label:selLabel||"Extra Deposit",amount:selAmount,currency:selCurrency,egpAmount,usdRate:selCurrency==="USD"?selUsdRate:null}]);
-    setSelAmount(0);setSelLabel("");
+  const[amount,setAmount]=useState("");
+  const[label,setLabel]=useState("");
+  const[draggingId,setDraggingId]=useState(null);
+
+  const addChip=()=>{
+    const val=Number(amount);
+    if(!val||val<=0)return;
+    onChange([...deposits,{id:Date.now(),absIdx:null,label:label||"Deposit",egpAmount:val,amount:val,currency:"EGP"}]);
+    setAmount("");setLabel("");
   };
+
   const remove=(id)=>onChange(deposits.filter(d=>d.id!==id));
-  return(<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1.1rem"}}>
-    <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.9rem"}}>➕ Manual Deposits</div>
-    {deposits.length===0&&<div style={{fontSize:"0.68rem",color:C.muted,fontStyle:"italic",marginBottom:"0.8rem"}}>No manual deposits yet</div>}
-    {deposits.length>0&&<div style={{marginBottom:"0.9rem",maxHeight:160,overflowY:"auto"}}>
-      {deposits.sort((a,b)=>a.absIdx-b.absIdx).map(d=>(<div key={d.id} style={{display:"flex",alignItems:"center",gap:"0.4rem",background:"rgba(245,166,35,0.06)",border:"1px solid rgba(245,166,35,0.15)",borderRadius:8,padding:"0.45rem 0.65rem",marginBottom:"0.35rem"}}>
-        <span style={{fontSize:"0.85rem"}}>{ICONS[d.label]||"💰"}</span>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:"0.72rem",fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</div>
-          <div style={{fontSize:"0.62rem",color:C.muted}}>{MONTHS_EN[d.month]} {d.year} · {d.currency==="USD"?`$${d.amount.toLocaleString()} = `:""}{fmtEGP(d.egpAmount)}</div>
-        </div>
-        <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem"}}>✕</button>
-      </div>))}
-    </div>}
-    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.8rem"}}>
-      <div style={{display:"flex",flexWrap:"wrap",gap:"0.3rem",marginBottom:"0.6rem"}}>
-        {Object.entries(ICONS).map(([l,ic])=>(<button key={l} onClick={()=>setSelLabel(l)}
-          style={{fontSize:"0.65rem",padding:"0.2rem 0.5rem",borderRadius:6,border:`1px solid ${selLabel===l?C.accent:C.border}`,background:selLabel===l?`${C.accent}18`:"transparent",color:selLabel===l?C.accent:C.muted,cursor:"pointer",fontFamily:"inherit"}}>
-          {ic} {l}
-        </button>))}
-      </div>
-      <input value={selLabel} onChange={e=>setSelLabel(e.target.value)} placeholder="Or type custom label…"
-        style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"inherit",outline:"none",marginBottom:"0.5rem"}}/>
-      <select value={selMonth} onChange={e=>setSelMonth(Number(e.target.value))}
-        style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"inherit",marginBottom:"0.5rem"}}>
-        {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
-      </select>
-      <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.5rem"}}>
-        <select value={selCurrency} onChange={e=>setSelCurrency(e.target.value)}
-          style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",width:70,flexShrink:0}}>
-          <option value="EGP">EGP</option><option value="USD">USD</option>
-        </select>
-        <input type="number" value={selAmount||""} min={0} step={100} onChange={e=>setSelAmount(Number(e.target.value))} placeholder="Amount"
-          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem 0.5rem",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",minWidth:0}}/>
-      </div>
-      {selCurrency==="USD"&&<div style={{display:"flex",alignItems:"center",gap:"0.5rem",marginBottom:"0.5rem"}}>
-        <span style={{fontSize:"0.68rem",color:C.muted,whiteSpace:"nowrap"}}>Rate $1 =</span>
-        <input type="number" value={selUsdRate} min={1} step={0.5} onChange={e=>setSelUsdRate(Number(e.target.value))}
-          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.accent,padding:"0.28rem 0.5rem",fontSize:"0.72rem",fontFamily:"monospace",outline:"none"}}/>
-        <span style={{fontSize:"0.68rem",color:C.muted}}>ج.م</span>
-        {selAmount>0&&<span style={{fontSize:"0.68rem",color:C.green,whiteSpace:"nowrap"}}>= {fmtEGP(selAmount*selUsdRate)}</span>}
-      </div>}
-      <button onClick={addDeposit} style={{width:"100%",background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:8,color:C.accent,padding:"0.45rem",fontSize:"0.75rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-        ➕ Add to Fund
-      </button>
+
+  // Chips not yet assigned to a month
+  const unassigned=deposits.filter(d=>d.absIdx===null);
+  // Chips assigned to a month
+  const assigned=deposits.filter(d=>d.absIdx!==null);
+
+  return(<div>
+    <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.7rem"}}>➕ Manual Deposits</div>
+    <div style={{fontSize:"0.63rem",color:C.sub,marginBottom:"0.7rem",lineHeight:1.5}}>
+      Type an amount, add it as a chip, then <strong style={{color:C.accent}}>drag</strong> it onto a month in the Monthly tab.
     </div>
+
+    {/* Input */}
+    <input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Label (optional)"
+      style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.32rem 0.5rem",fontSize:"0.7rem",fontFamily:"inherit",outline:"none",marginBottom:"0.4rem"}}/>
+    <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem"}}>
+      <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount ج.م"
+        onKeyDown={e=>e.key==="Enter"&&addChip()}
+        style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.accent,padding:"0.32rem 0.5rem",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",minWidth:0}}/>
+      <button onClick={addChip}
+        style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.6rem",fontSize:"0.8rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+</button>
+    </div>
+
+    {/* Unassigned chips */}
+    {unassigned.length>0&&(<>
+      <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Drag to a month →</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"0.35rem",marginBottom:"0.7rem"}}>
+        {unassigned.map(d=>(
+          <div key={d.id} draggable
+            onDragStart={e=>{setDraggingId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
+            onDragEnd={()=>setDraggingId(null)}
+            style={{display:"flex",alignItems:"center",gap:"0.3rem",background:`${C.teal}18`,border:`1px solid ${C.teal}45`,borderRadius:6,padding:"0.25rem 0.5rem",cursor:"grab",opacity:draggingId===d.id?0.4:1,userSelect:"none"}}>
+            <span style={{fontSize:"0.68rem",color:C.teal,fontFamily:"monospace",fontWeight:700}}>{fmtEGP(d.egpAmount)}</span>
+            {d.label&&d.label!=="Deposit"&&<span style={{fontSize:"0.6rem",color:C.muted}}>{d.label}</span>}
+            <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.65rem",padding:0,lineHeight:1}}>✕</button>
+          </div>
+        ))}
+      </div>
+    </>)}
+
+    {/* Assigned deposits */}
+    {assigned.length>0&&(<>
+      <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Assigned:</div>
+      <div style={{maxHeight:150,overflowY:"auto"}}>
+        {assigned.sort((a,b)=>a.absIdx-b.absIdx).map(d=>{
+          const{year,month}=absToDate(d.absIdx);
+          return(<div key={d.id} style={{display:"flex",alignItems:"center",gap:"0.35rem",marginBottom:"0.3rem",background:`${C.teal}0e`,borderRadius:6,padding:"0.25rem 0.5rem"}}>
+            <span style={{fontSize:"0.65rem",fontFamily:"monospace",color:C.teal,fontWeight:700}}>{fmtEGP(d.egpAmount)}</span>
+            <span style={{fontSize:"0.6rem",color:C.muted,flex:1}}>{MONTHS_EN[month]} {year}</span>
+            <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.65rem",padding:0}}>✕</button>
+          </div>);
+        })}
+      </div>
+    </>)}
   </div>);
 }
+
 
 // ── Goals Panel ───────────────────────────────────────────────
 function generateRecommendations(goal, rows, annualReturn, bigBoostTimeline, smallBoostTimeline, inflation, horizonMonths){
@@ -1107,50 +1114,69 @@ function loadLocalState(){
 }
 
 // ── Monthly Calendar Component ────────────────────────────────
-function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths}){
-  const[draggedAbsIdx,setDraggedAbsIdx]=useState(null);
+function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits,setManualDeposits}){
+  const[draggedUsdIdx,setDraggedUsdIdx]=useState(null);
+  const[draggedDepositId,setDraggedDepositId]=useState(null);
   const[dropTarget,setDropTarget]=useState(null);
 
-  const handleDrop=(targetAbsIdx)=>{
-    if(draggedAbsIdx===null||draggedAbsIdx===targetAbsIdx)return;
-    setUsdPayoutMonths(prev=>{
-      const updated=prev.filter(m=>m!==draggedAbsIdx);
-      if(!updated.includes(targetAbsIdx))updated.push(targetAbsIdx);
-      return updated.sort((a,b)=>a-b);
-    });
-    setDraggedAbsIdx(null);
+  const handleDrop=(targetAbsIdx,e)=>{
+    const depositId=e.dataTransfer.getData("depositId");
+    if(depositId){
+      const id=Number(depositId);
+      const{year,month}=absToDate(targetAbsIdx);
+      setManualDeposits(prev=>prev.map(d=>d.id===id?{...d,absIdx:targetAbsIdx,year,month}:d));
+      setDraggedDepositId(null);setDropTarget(null);
+      return;
+    }
+    if(draggedUsdIdx!==null&&draggedUsdIdx!==targetAbsIdx){
+      setUsdPayoutMonths(prev=>{
+        const updated=prev.filter(m=>m!==draggedUsdIdx);
+        if(!updated.includes(targetAbsIdx))updated.push(targetAbsIdx);
+        return updated.sort((a,b)=>a-b);
+      });
+      setDraggedUsdIdx(null);
+    }
     setDropTarget(null);
   };
 
   return(<div style={{maxHeight:560,overflowY:"auto"}}>
     <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
-      <span>Month</span><span>Payouts → Fund <span style={{color:C.accent,textTransform:"none",fontSize:"0.55rem"}}>· drag 💵 to move</span></span><span style={{textAlign:"right"}}>Balance</span>
+      <span>Month</span><span>Payouts <span style={{color:C.accent,textTransform:"none",fontSize:"0.55rem"}}>· drag to move</span></span><span style={{textAlign:"right"}}>Balance</span>
     </div>
     {rows.map((r,i)=>{
-      const has=r.bigPayout>0||r.smallPayout>0||r.usdIn>0||r.manualIn>0;
-      const isDropTarget=dropTarget===r.absIdx&&draggedAbsIdx!==null;
+      const monthDeposits=manualDeposits.filter(d=>d.absIdx===r.absIdx);
+      const has=r.bigPayout>0||r.smallPayout>0||r.usdIn>0||monthDeposits.length>0;
+      const isDropTarget=dropTarget===r.absIdx;
       return(<div key={i} className="cal-row"
         onDragOver={e=>{e.preventDefault();setDropTarget(r.absIdx);}}
-        onDragLeave={()=>setDropTarget(null)}
-        onDrop={()=>handleDrop(r.absIdx)}
+        onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget))setDropTarget(null);}}
+        onDrop={e=>handleDrop(r.absIdx,e)}
         style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",borderBottom:`1px solid ${C.border}15`,alignItems:"center",background:isDropTarget?`${C.accent}18`:has?"rgba(255,255,255,0.012)":"transparent",outline:isDropTarget?"2px solid "+C.accent:"none",outlineOffset:"-2px",transition:"background 0.15s"}}>
         <div>
           <div style={{fontSize:"0.78rem",fontWeight:has?700:400,color:has?C.text:C.muted}}>{MONTHS_EN[r.month]}</div>
           <div style={{fontSize:"0.6rem",color:C.muted}}>{r.year}</div>
         </div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem"}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:"0.25rem",alignItems:"center"}}>
           {r.bigPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.blue}12`,border:`1px solid ${C.blue}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.blue}}>🔵 {fmtEGP(r.bigPayout)}</span>}
           {r.smallPayout>0&&<span style={{fontSize:"0.65rem",background:`${C.green}12`,border:`1px solid ${C.green}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.green}}>🟢 {fmtEGP(r.smallPayout)}</span>}
           {r.usdIn>0&&(
             <span draggable
-              onDragStart={e=>{setDraggedAbsIdx(r.absIdx);e.dataTransfer.effectAllowed="move";}}
-              onDragEnd={()=>{setDraggedAbsIdx(null);setDropTarget(null);}}
-              style={{fontSize:"0.65rem",background:draggedAbsIdx===r.absIdx?`${C.accent}35`:`${C.accent}12`,border:`1px solid ${C.accent}45`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent,cursor:"grab",userSelect:"none",opacity:draggedAbsIdx===r.absIdx?0.5:1,transition:"all 0.15s"}}
-              title="Drag to move this USD payout to another month">
+              onDragStart={e=>{setDraggedUsdIdx(r.absIdx);e.dataTransfer.effectAllowed="move";}}
+              onDragEnd={()=>{setDraggedUsdIdx(null);setDropTarget(null);}}
+              style={{fontSize:"0.65rem",background:draggedUsdIdx===r.absIdx?`${C.accent}35`:`${C.accent}12`,border:`1px solid ${C.accent}45`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent,cursor:"grab",userSelect:"none",opacity:draggedUsdIdx===r.absIdx?0.5:1}}>
               💵 {fmtEGP(r.usdIn)} ⠿
             </span>
           )}
-          {r.manualIn>0&&<span style={{fontSize:"0.65rem",background:`${C.teal}12`,border:`1px solid ${C.teal}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.teal}}>➕ {fmtEGP(r.manualIn)}</span>}
+          {monthDeposits.map(d=>(
+            <span key={d.id} draggable
+              onDragStart={e=>{setDraggedDepositId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
+              onDragEnd={()=>{setDraggedDepositId(null);setDropTarget(null);}}
+              style={{display:"inline-flex",alignItems:"center",gap:"0.2rem",fontSize:"0.65rem",background:draggedDepositId===d.id?`${C.teal}35`:`${C.teal}12`,border:`1px solid ${C.teal}45`,borderRadius:5,padding:"0.12rem 0.35rem",color:C.teal,cursor:"grab",userSelect:"none",opacity:draggedDepositId===d.id?0.4:1}}>
+              ➕ {fmtEGP(d.egpAmount)} ⠿
+              <button onClick={e=>{e.stopPropagation();setManualDeposits(prev=>prev.filter(x=>x.id!==d.id));}}
+                style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.6rem",padding:"0 0.05rem",lineHeight:1}}>✕</button>
+            </span>
+          ))}
           {r.returnWithdrawn>0&&<span style={{fontSize:"0.65rem",background:`${C.accent}12`,border:`1px solid ${C.accent}28`,borderRadius:5,padding:"0.12rem 0.4rem",color:C.accent}}>💸 {fmtEGP(r.returnWithdrawn)} ({r.withdrawalDisplay})</span>}
           {!has&&!r.returnWithdrawn&&<span style={{fontSize:"0.65rem",color:isDropTarget?C.accent:C.muted}}>{isDropTarget?"Drop here →":"—"}</span>}
         </div>
@@ -1163,7 +1189,9 @@ function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths}){
   </div>);
 }
 
-function App(){
+
+
+// ── Circle Schedule Table Row ─────────────────────────────────
 function CircleTableRow({circle,months,onAmountChange,color}){
   const[editing,setEditing]=useState(false);
   const[tempVal,setTempVal]=useState(circle.amount);
@@ -1419,7 +1447,7 @@ function App(){
         </div>
 
         {/* Main layout */}
-        <div className="main-grid" style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:"0.9rem",alignItems:"start"}}>
+        <div className="main-grid" style={{display:"grid",gridTemplateColumns:"270px 1fr 230px",gap:"0.9rem",alignItems:"start"}}>
 
           {/* LEFT */}
           <div style={{display:"flex",flexDirection:"column",gap:"0.8rem"}}>
@@ -1638,13 +1666,13 @@ function App(){
           {/* RIGHT */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
             <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,padding:"0 0.6rem",overflowX:"auto"}}>
-              {[["calendar","📅 Monthly"],["schedule","📊 Schedule"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["deposits","➕ Deposits"],["insights","🤖 AI Insights"]].map(([t,l])=>(
+              {[["calendar","📅 Monthly"],["schedule","📊 Schedule"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
                 <button key={t} style={tabStyle(t)} onClick={()=>setActiveTab(t)}>{l}</button>
               ))}
             </div>
 
             {/* Monthly Calendar */}
-            {activeTab==="calendar"&&<MonthlyCalendar rows={rows} usdPayoutMonths={usdPayoutMonths} setUsdPayoutMonths={setUsdPayoutMonths}/>}
+            {activeTab==="calendar"&&<MonthlyCalendar rows={rows} usdPayoutMonths={usdPayoutMonths} setUsdPayoutMonths={setUsdPayoutMonths} manualDeposits={manualDeposits} setManualDeposits={setManualDeposits}/>}
 
             {/* Cash Flow */}
             {/* Schedule Table */}
@@ -1796,11 +1824,6 @@ function App(){
             </div>)}
 
             {/* AI Insights */}
-            {/* Manual Deposits Tab */}
-            {activeTab==="deposits"&&(<div style={{padding:"0.9rem",maxHeight:580,overflowY:"auto"}}>
-              <ManualDepositsPanel deposits={manualDeposits} onChange={setManualDeposits} horizonMonths={horizon}/>
-            </div>)}
-
             {activeTab==="insights"&&(<div style={{maxHeight:580,overflowY:"auto"}}>
               <InsightsPanel
                 fundBalance={last.balance||initialFund}
@@ -1808,6 +1831,11 @@ function App(){
                 usdRate={usdRate}
               />
             </div>)}
+          </div>
+
+          {/* RIGHT SIDE — Manual Deposits Panel */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1rem",position:"sticky",top:"0.9rem"}}>
+            <ManualDepositsPanel deposits={manualDeposits} onChange={setManualDeposits} horizonMonths={horizon}/>
           </div>
         </div>
 
