@@ -64,7 +64,7 @@ function buildCircleSchedule(horizonMonths,bigAmounts,smallAmounts){
       const m=i-start+1;
       const amt=bigCircleMap[start]||2000;
       if(m>=1&&m<=DURATION){
-        if(m===PAYOUT_SLOT)bigPayout+=amt*5; // payout = amt × 5
+        if(m===PAYOUT_SLOT)bigPayout+=amt*5;
         else bigWage+=amt;
       }
     }
@@ -118,8 +118,10 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const capDrainBig=totalRawWage>0?wagesCapDrain*(bigWageBase/totalRawWage):0;
     const capDrainSmall=totalRawWage>0?wagesCapDrain*(smallWageBase/totalRawWage):0;
 
-    const bigTotalObligation=bigWageBase+(bigPayout>0?2000:0);
-    const smallTotalObligation=smallWageBase+(smallPayout>0?1000:0);
+    // Now bigWageBase already includes payout month contribution (from buildCircleSchedule fix)
+    // So total obligation = bigWageBase (no need to add extra for payout month)
+    const bigTotalObligation=bigWageBase;
+    const smallTotalObligation=smallWageBase;
     const bigFundDrain=Math.min(bigBoost+capDrainBig,bigTotalObligation);
     const smallFundDrain=Math.min(smallBoost+capDrainSmall,smallTotalObligation);
     const totalFundDrain=Math.min(bigFundDrain+smallFundDrain,balance*0.3);
@@ -127,9 +129,8 @@ function simulate({initialFund=40000,annualReturn,inflation,usdRate,bigBoostTime
     const bigWageActual=Math.max(0,bigWageBase-Math.min(bigFundDrain,bigWageBase));
     const smallWageActual=Math.max(0,smallWageBase-Math.min(smallFundDrain,smallWageBase));
 
-    // Payout uses the circle's actual amount (from schedule) based on circle start month
-    // Circle that pays at absIdx i started at i-3 (slot 4 of 6)
-    // Big circles start at -2,0,2,4... → circle index = (startAbsIdx+2)/2
+    // Payout = gross amount collected (agency already deducted contribution from payout)
+    // Net to fund = payout - contribution already counted in wages
     const bigStartAbsIdx=i-3;
     const bigCircleIdx=Math.floor((bigStartAbsIdx+2)/2);
     const bigCircleAmt=bigCircleIdx>=0?(bigCircleAmounts[bigCircleIdx]||2000):2000;
