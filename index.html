@@ -1140,7 +1140,7 @@ function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits
     setDropTarget(null);
   };
 
-  return(<div style={{maxHeight:560,overflowY:"auto"}} onDragOver={e=>e.preventDefault()}>
+  return(<div style={{maxHeight:560,overflowY:"auto"}}>
     <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
       <span>Month</span><span>Payouts <span style={{color:C.accent,textTransform:"none",fontSize:"0.55rem"}}>· drag to move</span></span><span style={{textAlign:"right"}}>Balance</span>
     </div>
@@ -1666,4 +1666,4 @@ function App(){
 
           {/* RIGHT */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
-            <div style={{displ
+            <div style={{display:"flex",borderBottom:`1px solid $
