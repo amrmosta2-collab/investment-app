@@ -437,10 +437,9 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircle
   </div>);
 }
 
-function ManualDepositsPanel({deposits,onChange,horizonMonths}){
+function ManualDepositsPanel({deposits,onChange,horizonMonths,draggingDepositId,setDraggingDepositId}){
   const[amount,setAmount]=useState("");
   const[label,setLabel]=useState("");
-  const[draggingId,setDraggingId]=useState(null);
 
   const addChip=()=>{
     const val=Number(amount);
@@ -450,19 +449,15 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths}){
   };
 
   const remove=(id)=>onChange(deposits.filter(d=>d.id!==id));
-
-  // Chips not yet assigned to a month
   const unassigned=deposits.filter(d=>d.absIdx===null);
-  // Chips assigned to a month
   const assigned=deposits.filter(d=>d.absIdx!==null);
 
   return(<div>
     <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.7rem"}}>➕ Manual Deposits</div>
     <div style={{fontSize:"0.63rem",color:C.sub,marginBottom:"0.7rem",lineHeight:1.5}}>
-      Type an amount, add it as a chip, then <strong style={{color:C.accent}}>drag</strong> it onto a month in the Monthly tab.
+      Type an amount, add it, then <strong style={{color:C.accent}}>drag</strong> it onto a month.
     </div>
 
-    {/* Input */}
     <input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Label (optional)"
       style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.32rem 0.5rem",fontSize:"0.7rem",fontFamily:"inherit",outline:"none",marginBottom:"0.4rem"}}/>
     <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem"}}>
@@ -473,24 +468,27 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths}){
         style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.6rem",fontSize:"0.8rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+</button>
     </div>
 
-    {/* Unassigned chips */}
     {unassigned.length>0&&(<>
       <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Drag to a month →</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:"0.35rem",marginBottom:"0.7rem"}}>
         {unassigned.map(d=>(
           <div key={d.id} draggable
-            onDragStart={e=>{setDraggingId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
-            onDragEnd={()=>setDraggingId(null)}
-            style={{display:"flex",alignItems:"center",gap:"0.3rem",background:`${C.teal}18`,border:`1px solid ${C.teal}45`,borderRadius:6,padding:"0.25rem 0.5rem",cursor:"grab",opacity:draggingId===d.id?0.4:1,userSelect:"none"}}>
+            onDragStart={e=>{
+              setDraggingDepositId(d.id);
+              e.dataTransfer.setData("depositId",String(d.id));
+              e.dataTransfer.effectAllowed="move";
+            }}
+            onDragEnd={()=>setDraggingDepositId(null)}
+            style={{display:"flex",alignItems:"center",gap:"0.3rem",background:draggingDepositId===d.id?`${C.teal}35`:`${C.teal}18`,border:`1px solid ${C.teal}45`,borderRadius:6,padding:"0.25rem 0.5rem",cursor:"grab",opacity:draggingDepositId===d.id?0.4:1,userSelect:"none"}}>
             <span style={{fontSize:"0.68rem",color:C.teal,fontFamily:"monospace",fontWeight:700}}>{fmtEGP(d.egpAmount)}</span>
             {d.label&&d.label!=="Deposit"&&<span style={{fontSize:"0.6rem",color:C.muted}}>{d.label}</span>}
+            <span style={{fontSize:"0.6rem",color:C.muted}}>⠿</span>
             <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.65rem",padding:0,lineHeight:1}}>✕</button>
           </div>
         ))}
       </div>
     </>)}
 
-    {/* Assigned deposits */}
     {assigned.length>0&&(<>
       <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Assigned:</div>
       <div style={{maxHeight:150,overflowY:"auto"}}>
@@ -506,7 +504,6 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths}){
     </>)}
   </div>);
 }
-
 
 // ── Goals Panel ───────────────────────────────────────────────
 function generateRecommendations(goal, rows, annualReturn, bigBoostTimeline, smallBoostTimeline, inflation, horizonMonths){
@@ -1115,18 +1112,20 @@ function loadLocalState(){
 }
 
 // ── Monthly Calendar Component ────────────────────────────────
-function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits,setManualDeposits}){
+function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits,setManualDeposits,draggingDepositId,setDraggingDepositId}){
   const[draggedUsdIdx,setDraggedUsdIdx]=useState(null);
-  const[draggedDepositId,setDraggedDepositId]=useState(null);
   const[dropTarget,setDropTarget]=useState(null);
 
   const handleDrop=(targetAbsIdx,e)=>{
-    const depositId=e.dataTransfer.getData("depositId");
+    // Try dataTransfer first, then fall back to shared state
+    const depositIdStr=e.dataTransfer.getData("depositId");
+    const depositId=depositIdStr?Number(depositIdStr):draggingDepositId;
+
     if(depositId){
-      const id=Number(depositId);
       const{year,month}=absToDate(targetAbsIdx);
-      setManualDeposits(prev=>prev.map(d=>d.id===id?{...d,absIdx:targetAbsIdx,year,month}:d));
-      setDraggedDepositId(null);setDropTarget(null);
+      setManualDeposits(prev=>prev.map(d=>d.id===depositId?{...d,absIdx:targetAbsIdx,year,month}:d));
+      setDraggingDepositId(null);
+      setDropTarget(null);
       return;
     }
     if(draggedUsdIdx!==null&&draggedUsdIdx!==targetAbsIdx){
@@ -1140,7 +1139,7 @@ function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits
     setDropTarget(null);
   };
 
-  return(<div style={{maxHeight:560,overflowY:"auto"}}>
+  return(<div style={{maxHeight:560,overflowY:"auto"}} onDragOver={e=>e.preventDefault()}>
     <div style={{display:"grid",gridTemplateColumns:"80px 1fr 115px",gap:"0.3rem",padding:"0.45rem 0.9rem",fontSize:"0.6rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
       <span>Month</span><span>Payouts <span style={{color:C.accent,textTransform:"none",fontSize:"0.55rem"}}>· drag to move</span></span><span style={{textAlign:"right"}}>Balance</span>
     </div>
@@ -1170,9 +1169,9 @@ function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits
           )}
           {monthDeposits.map(d=>(
             <span key={d.id} draggable
-              onDragStart={e=>{setDraggedDepositId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
-              onDragEnd={()=>{setDraggedDepositId(null);setDropTarget(null);}}
-              style={{display:"inline-flex",alignItems:"center",gap:"0.2rem",fontSize:"0.65rem",background:draggedDepositId===d.id?`${C.teal}35`:`${C.teal}12`,border:`1px solid ${C.teal}45`,borderRadius:5,padding:"0.12rem 0.35rem",color:C.teal,cursor:"grab",userSelect:"none",opacity:draggedDepositId===d.id?0.4:1}}>
+              onDragStart={e=>{setDraggingDepositId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
+              onDragEnd={()=>{setDraggingDepositId(null);setDropTarget(null);}}
+              style={{display:"inline-flex",alignItems:"center",gap:"0.2rem",fontSize:"0.65rem",background:draggingDepositId===d.id?`${C.teal}35`:`${C.teal}12`,border:`1px solid ${C.teal}45`,borderRadius:5,padding:"0.12rem 0.35rem",color:C.teal,cursor:"grab",userSelect:"none",opacity:draggingDepositId===d.id?0.4:1}}>
               ➕ {fmtEGP(d.egpAmount)} ⠿
               <button onClick={e=>{e.stopPropagation();setManualDeposits(prev=>prev.filter(x=>x.id!==d.id));}}
                 style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.6rem",padding:"0 0.05rem",lineHeight:1}}>✕</button>
@@ -1256,6 +1255,7 @@ function App(){
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
   const[bigCircleAmounts,setBigCircleAmounts]=useState(local.bigCircleAmounts||[...DEFAULT_BIG_AMOUNTS]);
   const[smallCircleAmounts,setSmallCircleAmounts]=useState(local.smallCircleAmounts||[...DEFAULT_SMALL_AMOUNTS]);
+  const[draggingDepositId,setDraggingDepositId]=useState(null);
   const[initialFund,setInitialFund]=useState(local.initialFund||40000);
   const[fundInput,setFundInput]=useState(String(local.initialFund||40000));
   const[goals,setGoals]=useState(local.goals||[]);
@@ -1664,191 +1664,3 @@ function App(){
             </div>
           </div>
 
-          {/* RIGHT */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
-            <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,padding:"0 0.6rem",overflowX:"auto"}}>
-              {[["calendar","📅 Monthly"],["schedule","📊 Schedule"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
-                <button key={t} style={tabStyle(t)} onClick={()=>setActiveTab(t)}>{l}</button>
-              ))}
-            </div>
-
-            {/* Monthly Calendar */}
-            {activeTab==="calendar"&&<MonthlyCalendar rows={rows} usdPayoutMonths={usdPayoutMonths} setUsdPayoutMonths={setUsdPayoutMonths} manualDeposits={manualDeposits} setManualDeposits={setManualDeposits}/>}
-
-            {/* Cash Flow */}
-            {/* Schedule Table */}
-            {activeTab==="schedule"&&(()=>{
-              // Build circle data for the table
-              const tableMonths=Array.from({length:horizon+2},(_,i)=>({
-                absIdx:i-2,
-                label:`${MONTHS_EN[((3+i-2)%12+12)%12]} ${2026+Math.floor((3+i-2)/12)}`,
-                month:((3+i-2)%12+12)%12,
-              }));
-              const bigCircles=[];let bi=0;
-              for(let start=-2;start<horizon;start+=2){
-                bigCircles.push({idx:bi,start,end:start+5,amount:bigCircleAmounts[bi]||2000,payoutAbsIdx:start+3,payout:(bigCircleAmounts[bi]||2000)*5});
-                bi++;
-              }
-              const smallCircles=[];let si=0;
-              for(let start=1;start<horizon;start+=2){
-                smallCircles.push({idx:si,start,end:start+5,amount:smallCircleAmounts[si]||1000,payoutAbsIdx:start+3,payout:(smallCircleAmounts[si]||1000)*5});
-                si++;
-              }
-              // Monthly summary from rows
-              const stickyTd=(label,color)=>(
-                <td style={{background:C.card,padding:"0.28rem 0.5rem",fontSize:"0.6rem",color,position:"sticky",left:0,zIndex:2,borderBottom:`1px solid ${C.border}`,minWidth:105,whiteSpace:"nowrap",fontWeight:700}}>{label}</td>
-              );
-              return(<div style={{maxHeight:520,overflowY:"auto",overflowX:"auto",position:"relative"}}>
-                <div>
-                  <table style={{borderCollapse:"collapse",width:"100%"}}>
-                    <thead>
-                      <tr>
-                        <th style={{background:C.card,padding:"0.4rem 0.5rem",fontSize:"0.6rem",color:C.muted,textAlign:"left",position:"sticky",left:0,top:0,zIndex:5,borderBottom:`2px solid ${C.border}`,minWidth:105}}>Circle / Month</th>
-                        {tableMonths.map(m=>(
-                          <th key={m.absIdx} style={{background:C.card,padding:"0.3rem 0.1rem",fontSize:"0.56rem",color:C.sub,textAlign:"center",borderBottom:`2px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,minWidth:52,whiteSpace:"nowrap",position:"sticky",top:0,zIndex:3}}>
-                            {MONTHS_EN[m.month]}<br/><span style={{color:C.muted,fontSize:"0.48rem"}}>{2026+Math.floor((3+m.absIdx)/12)}</span>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.blue}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.blue,borderBottom:`1px solid ${C.blue}30`,position:"sticky",left:0}}>🔵 Big EGP Circles — click amount to edit</td></tr>
-                      {bigCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setBigCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.blue}/>)}
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.green}15`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.green,borderBottom:`1px solid ${C.green}30`,position:"sticky",left:0}}>🟢 Small EGP Circles — click amount to edit</td></tr>
-                      {smallCircles.map(c=><CircleTableRow key={c.idx} circle={c} months={tableMonths} onAmountChange={(idx,val)=>{setSmallCircleAmounts(prev=>{const n=[...prev];for(let x=idx;x<n.length;x++)n[x]=val;return n;});}} color={C.green}/>)}
-                    </tbody>
-                    {/* Sticky summary tfoot */}
-                    <tfoot style={{position:"sticky",bottom:0,zIndex:4}}>
-                      <tr><td colSpan={tableMonths.length+1} style={{background:`${C.accent}10`,padding:"0.28rem 0.5rem",fontSize:"0.63rem",fontWeight:700,color:C.accent,borderTop:`2px solid ${C.border}`,borderBottom:`1px solid ${C.accent}25`,position:"sticky",left:0}}>
-                        📊 Monthly Summary
-                        {wagesCapTimeline.length>0&&<span style={{fontSize:"0.58rem",color:C.purple,marginLeft:"0.5rem"}}>· 💼 Wages cap active</span>}
-                      </td></tr>
-                      <tr>
-                        {stickyTd("💼 From Wages",C.red)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigWage+r.smallWage:0;const cap=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,m.absIdx):Infinity;const capped=cap!==Infinity&&v<(r?r.bigWage+r.smallWage+r.wagesCapDrain:0)-1;return(<td key={m.absIdx} style={{background:v>0?`${C.red}10`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:capped?C.purple:v>0?C.red:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
-                      </tr>
-                      <tr>
-                        {stickyTd("📈 From Fund Cap",C.purple)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?Math.round(r.wagesCapDrain||0):0;return(<td key={m.absIdx} style={{background:v>0?`${C.purple}12`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.purple:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
-                      </tr>
-                      <tr>
-                        {stickyTd("💰 Payouts → Fund",C.blue)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?r.bigPayout+r.smallPayout+r.usdIn+r.manualIn:0;return(<td key={m.absIdx} style={{background:v>0?`${C.blue}10`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.blue:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?700:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
-                      </tr>
-                      <tr>
-                        {stickyTd("⚡ Net Cash Flow",C.accent)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const tin=r?r.bigPayout+r.smallPayout+r.usdIn+r.manualIn:0;const out=r?r.bigWage+r.smallWage:0;const net=tin-out-(r?r.returnWithdrawn:0);return(<td key={m.absIdx} style={{background:net>0?`${C.green}18`:net<0?`${C.red}12`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.65rem",fontFamily:"monospace",color:net>0?C.green:net<0?C.red:C.muted,borderRight:`1px solid ${C.border}15`,borderBottom:`1px solid ${C.border}`,fontWeight:800}}>{net===0?"—":`${net>0?"+":""}${Math.round(Math.abs(net)).toLocaleString()}`}</td>);})}
-                      </tr>
-                      <tr>
-                        {stickyTd("📈 Fund Return",C.green)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?Math.round(r.returnAmt):0;return(<td key={m.absIdx} style={{background:v>0?`${C.green}08`:C.card,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.63rem",fontFamily:"monospace",color:v>0?C.green:C.muted,borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}15`,fontWeight:v>0?600:400}}>{v>0?v.toLocaleString():"—"}</td>);})}
-                      </tr>
-                      <tr>
-                        {stickyTd("💰 Fund Balance",C.accent)}
-                        {tableMonths.map(m=>{const r=rows.find(x=>x.absIdx===m.absIdx);const v=r?Math.round(r.balance):0;return(<td key={m.absIdx} style={{background:`${C.accent}10`,padding:"0.25rem 0.1rem",textAlign:"center",fontSize:"0.65rem",fontFamily:"monospace",color:C.accent,borderRight:`1px solid ${C.border}15`,fontWeight:800}}>{v>0?v.toLocaleString():"—"}</td>);})}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                <div style={{padding:"0.5rem 0.9rem",borderTop:`1px solid ${C.border}`,display:"flex",gap:"1rem",fontSize:"0.63rem",flexWrap:"wrap"}}>
-                  <span style={{color:C.blue}}>Filled = paying · ★ = payout month</span>
-                  <span style={{color:C.sub}}>✎ Click left label to change circle amount</span>
-                  <span style={{color:C.green}}>Green net = positive · </span><span style={{color:C.red}}>Red = more going out</span>
-                </div>
-              </div>);
-            })()}
-
-            {/* Income Source */}
-            {activeTab==="income"&&(<div style={{maxHeight:560,overflowY:"auto"}}>
-              <div style={{display:"flex",gap:"1rem",padding:"0.55rem 0.9rem",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                <span style={{fontSize:"0.67rem",color:C.blue}}>💼 From wages</span>
-                <span style={{fontSize:"0.67rem",color:C.green}}>📈 From fund (boost)</span>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"80px repeat(4,1fr)",gap:"0.2rem",padding:"0.4rem 0.9rem",fontSize:"0.58rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.card,zIndex:1}}>
-                <span>Month</span><span style={{textAlign:"right"}}>💼 Big</span><span style={{textAlign:"right"}}>📈 Big</span><span style={{textAlign:"right"}}>💼 Small</span><span style={{textAlign:"right"}}>📈 Small</span>
-              </div>
-              {rows.map((r,i)=>(
-                <div key={i} className="cal-row" style={{display:"grid",gridTemplateColumns:"80px repeat(4,1fr)",gap:"0.2rem",padding:"0.38rem 0.9rem",borderBottom:`1px solid ${C.border}10`,alignItems:"center",transition:"background 0.15s"}}>
-                  <div><div style={{fontSize:"0.75rem",fontWeight:600,color:C.text}}>{MONTHS_EN[r.month]}</div><div style={{fontSize:"0.58rem",color:C.muted}}>{r.year}</div></div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.bigWage>0?C.blue:C.muted}}>{r.bigWage>0?fmtEGP(r.bigWage):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.bigFund>0?C.green:C.muted}}>{r.bigFund>0?fmtEGP(r.bigFund):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.smallWage>0?C.blue:C.muted}}>{r.smallWage>0?fmtEGP(r.smallWage):"—"}</div>
-                  <div style={{textAlign:"right",fontFamily:"monospace",fontSize:"0.7rem",color:r.smallFund>0?C.green:C.muted}}>{r.smallFund>0?fmtEGP(r.smallFund):"—"}</div>
-                </div>
-              ))}
-            </div>)}
-
-            {/* Yearly */}
-            {activeTab==="yearly"&&(<div style={{padding:"0.9rem",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:"0.65rem",maxHeight:560,overflowY:"auto"}}>
-              {uniqueYears.map((yr,i)=>{
-                const yR=rows.filter(r=>r.year===yr);
-                const lR=yR[yR.length-1];
-                return(<div key={yr} style={{background:"#070b12",border:`1px solid ${C.border}`,borderRadius:12,padding:"0.9rem 1rem",animation:`fadeUp 0.4s ease both`,animationDelay:`${i*40}ms`}}>
-                  <div style={{fontSize:"1rem",fontWeight:900,color:C.accent,marginBottom:"0.45rem"}}>{yr}</div>
-                  <div style={{fontSize:"0.65rem",color:C.muted}}>End Balance</div>
-                  <div style={{fontSize:"1.05rem",fontWeight:800,fontFamily:"monospace",color:C.text,marginBottom:"0.55rem"}}>{fmtEGP(lR.balance)}</div>
-                  {[["Payouts in",fmtEGP(yR.reduce((s,r)=>s+r.totalIn,0)),C.blue],["Returns",fmtEGP(yR.reduce((s,r)=>s+r.returnAmt,0)),C.green],["💸 Withdrawn",fmtEGP(yR.reduce((s,r)=>s+r.returnWithdrawn,0)),C.accent],["Wages",fmtEGP(yR.reduce((s,r)=>s+r.bigWage+r.smallWage,0)),C.red],["Boost used",fmtEGP(yR.reduce((s,r)=>s+r.totalFundDrain,0)),C.purple],["Real value",fmtEGP(lR.realValue),C.sub]].map(([k,v,c])=>(
-                    <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:"0.67rem",padding:"0.18rem 0",borderTop:`1px solid ${C.border}20`}}>
-                      <span style={{color:C.muted}}>{k}</span><span style={{color:c,fontFamily:"monospace",fontWeight:600}}>{v}</span>
-                    </div>
-                  ))}
-                </div>);
-              })}
-            </div>)}
-
-            {/* Circles */}
-            {activeTab==="circles"&&(<div style={{padding:"0.9rem",maxHeight:560,overflowY:"auto"}}>
-              {[
-                {title:"🔵 Big EGP Circle",color:C.blue,rows:[["Duration","6 months"],["Contribution","ج.م 2,000/mo"],["Slot","4th"],["Payout formula","Contribution × 5"],["Base payout","ج.م 10,000"],["Schedule","May·Jul·Sep·Nov·Jan·Mar"]]},
-                {title:"🟢 Small EGP Circle",color:C.green,rows:[["Duration","6 months"],["Contribution","ج.م 1,000/mo"],["Slot","4th"],["Payout formula","Contribution × 5"],["Base payout","ج.م 5,000"],["Starts","May 2026"],["Schedule","Aug·Oct·Dec·Feb·Apr·Jun"]]},
-                {title:"💵 USD Circle",color:C.accent,rows:[["Duration","10 months"],["Contribution","$200/mo"],["Payout",`$2,000 = ${fmtEGP(2000*usdRate)}`],["Circle 1","Jun 2026 (last slot)"],["Circle 2","Jul 2026 (first slot)"],["Pattern","Alternating first/last"]]},
-              ].map(circle=>(<div key={circle.title} style={{background:"#070b12",border:`1px solid ${circle.color}22`,borderRadius:12,padding:"0.9rem 1.1rem",marginBottom:"0.65rem"}}>
-                <div style={{fontWeight:800,fontSize:"0.88rem",color:circle.color,marginBottom:"0.65rem"}}>{circle.title}</div>
-                {circle.rows.map(([k,v])=>(<div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:"0.72rem",padding:"0.25rem 0",borderTop:`1px solid ${C.border}20`,gap:"0.8rem"}}>
-                  <span style={{color:C.muted,flexShrink:0}}>{k}</span><span style={{color:C.text,fontWeight:600,textAlign:"right"}}>{v}</span>
-                </div>))}
-              </div>))}
-            </div>)}
-
-            {/* Goals */}
-            {activeTab==="goals"&&(<div style={{padding:"0.9rem",maxHeight:560,overflowY:"auto"}}>
-              <GoalsPanel
-                rows={rows}
-                annualReturn={annualReturn}
-                bigBoostTimeline={bigBoostTimeline}
-                smallBoostTimeline={smallBoostTimeline}
-                inflation={inflation}
-                goals={goals}
-                onChange={setGoals}
-                horizonMonths={horizon}
-              />
-            </div>)}
-
-            {/* AI Insights */}
-            {activeTab==="insights"&&(<div style={{maxHeight:580,overflowY:"auto"}}>
-              <InsightsPanel
-                fundBalance={last.balance||initialFund}
-                annualReturn={annualReturn}
-                usdRate={usdRate}
-              />
-            </div>)}
-          </div>
-
-          {/* RIGHT SIDE — Manual Deposits Panel */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,padding:"1rem",position:"sticky",top:"0.9rem"}}>
-            <ManualDepositsPanel deposits={manualDeposits} onChange={setManualDeposits} horizonMonths={horizon}/>
-          </div>
-        </div>
-
-        <p style={{textAlign:"center",fontSize:"0.62rem",color:C.muted,marginTop:"1rem"}}>
-          للأغراض التوضيحية فقط · Past performance does not guarantee future results
-        </p>
-      </div>
-    </div>
-  </>);
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-</script>
-</body>
-</html>
