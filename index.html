@@ -437,9 +437,10 @@ function AlertPanel({horizonMonths,bigBoostTimeline,smallBoostTimeline,bigCircle
   </div>);
 }
 
-function ManualDepositsPanel({deposits,onChange,horizonMonths,draggingDepositId,setDraggingDepositId}){
+function ManualDepositsPanel({deposits,onChange,horizonMonths}){
   const[amount,setAmount]=useState("");
   const[label,setLabel]=useState("");
+  const[draggingId,setDraggingId]=useState(null);
 
   const addChip=()=>{
     const val=Number(amount);
@@ -449,15 +450,19 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths,draggingDepositId,
   };
 
   const remove=(id)=>onChange(deposits.filter(d=>d.id!==id));
+
+  // Chips not yet assigned to a month
   const unassigned=deposits.filter(d=>d.absIdx===null);
+  // Chips assigned to a month
   const assigned=deposits.filter(d=>d.absIdx!==null);
 
   return(<div>
     <div style={{fontSize:"0.65rem",color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:"0.7rem"}}>➕ Manual Deposits</div>
     <div style={{fontSize:"0.63rem",color:C.sub,marginBottom:"0.7rem",lineHeight:1.5}}>
-      Type an amount, add it, then <strong style={{color:C.accent}}>drag</strong> it onto a month.
+      Type an amount, add it as a chip, then <strong style={{color:C.accent}}>drag</strong> it onto a month in the Monthly tab.
     </div>
 
+    {/* Input */}
     <input value={label} onChange={e=>setLabel(e.target.value)} placeholder="Label (optional)"
       style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.32rem 0.5rem",fontSize:"0.7rem",fontFamily:"inherit",outline:"none",marginBottom:"0.4rem"}}/>
     <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem"}}>
@@ -468,27 +473,24 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths,draggingDepositId,
         style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.6rem",fontSize:"0.8rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+</button>
     </div>
 
+    {/* Unassigned chips */}
     {unassigned.length>0&&(<>
       <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Drag to a month →</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:"0.35rem",marginBottom:"0.7rem"}}>
         {unassigned.map(d=>(
           <div key={d.id} draggable
-            onDragStart={e=>{
-              setDraggingDepositId(d.id);
-              e.dataTransfer.setData("depositId",String(d.id));
-              e.dataTransfer.effectAllowed="move";
-            }}
-            onDragEnd={()=>setDraggingDepositId(null)}
-            style={{display:"flex",alignItems:"center",gap:"0.3rem",background:draggingDepositId===d.id?`${C.teal}35`:`${C.teal}18`,border:`1px solid ${C.teal}45`,borderRadius:6,padding:"0.25rem 0.5rem",cursor:"grab",opacity:draggingDepositId===d.id?0.4:1,userSelect:"none"}}>
+            onDragStart={e=>{setDraggingId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
+            onDragEnd={()=>setDraggingId(null)}
+            style={{display:"flex",alignItems:"center",gap:"0.3rem",background:`${C.teal}18`,border:`1px solid ${C.teal}45`,borderRadius:6,padding:"0.25rem 0.5rem",cursor:"grab",opacity:draggingId===d.id?0.4:1,userSelect:"none"}}>
             <span style={{fontSize:"0.68rem",color:C.teal,fontFamily:"monospace",fontWeight:700}}>{fmtEGP(d.egpAmount)}</span>
             {d.label&&d.label!=="Deposit"&&<span style={{fontSize:"0.6rem",color:C.muted}}>{d.label}</span>}
-            <span style={{fontSize:"0.6rem",color:C.muted}}>⠿</span>
             <button onClick={()=>remove(d.id)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.65rem",padding:0,lineHeight:1}}>✕</button>
           </div>
         ))}
       </div>
     </>)}
 
+    {/* Assigned deposits */}
     {assigned.length>0&&(<>
       <div style={{fontSize:"0.6rem",color:C.muted,marginBottom:"0.3rem"}}>Assigned:</div>
       <div style={{maxHeight:150,overflowY:"auto"}}>
@@ -504,6 +506,7 @@ function ManualDepositsPanel({deposits,onChange,horizonMonths,draggingDepositId,
     </>)}
   </div>);
 }
+
 
 // ── Goals Panel ───────────────────────────────────────────────
 function generateRecommendations(goal, rows, annualReturn, bigBoostTimeline, smallBoostTimeline, inflation, horizonMonths){
@@ -1111,106 +1114,19 @@ function loadLocalState(){
   try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):null;}catch{return null;}
 }
 
-// ── Withdrawal Input Component ────────────────────────────────
-function WithdrawalInput({withdrawalTimeline,setWithdrawalTimeline,horizon,rows}){
-  const[selMonth,setSelMonth]=useState(0);
-  const[selAmount,setSelAmount]=useState(0);
-  const[selMode,setSelMode]=useState("pct");
-  const[wError,setWError]=useState("");
-  const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
-  const sampleRow=rows.find(r=>r.absIdx===selMonth);
-  const estPreview=sampleRow&&selAmount>0?(selMode==="pct"?Math.round(sampleRow.returnAmt*(selAmount/100)):selAmount):0;
-  const addW=()=>{
-    if(selAmount<=0){setWError("Enter an amount greater than 0.");return;}
-    if(selMode==="pct"&&selAmount>100){setWError("Percentage must be 0–100%");return;}
-    setWError("");
-    const updated=[...withdrawalTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selAmount,mode:selMode}].sort((a,b)=>a.absIdx-b.absIdx);
-    setWithdrawalTimeline(updated);setSelAmount(0);
-  };
-  const activePoint=withdrawalTimeline.slice().reverse().find(p=>p.absIdx<=selMonth)||null;
-  const activeLabel=activePoint?(activePoint.mode==="pct"?`${activePoint.amount}% of return`:fmtEGP(activePoint.amount)+" fixed"):"No withdrawal";
-  return(<>
-    <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem",marginTop:"0.5rem"}}>
-      {[["pct","% of Return"],["egp","Fixed ج.م"]].map(([m,l])=>(
-        <button key={m} onClick={()=>{setSelMode(m);setSelAmount(0);setWError("");}}
-          style={{flex:1,padding:"0.35rem",borderRadius:8,border:`1px solid ${selMode===m?C.accent:C.border}`,background:selMode===m?`${C.accent}18`:"transparent",color:selMode===m?C.accent:C.muted,fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:selMode===m?700:400}}>
-          {l}
-        </button>
-      ))}
-    </div>
-    <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
-      <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setWError("");}}
-        style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
-        {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
-      </select>
-      <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
-        <input type="number" value={selAmount||""} min={0} max={selMode==="pct"?100:99999} step={selMode==="pct"?5:100}
-          onChange={e=>{setSelAmount(Number(e.target.value));setWError("");}}
-          placeholder={selMode==="pct"?"e.g. 30":"e.g. 2000"}
-          style={{width:"100%",background:C.bg,border:`1px solid ${wError?C.red:C.border}`,borderRadius:7,color:C.accent,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
-        <span style={{color:C.muted,fontSize:"0.78rem",flexShrink:0}}>{selMode==="pct"?"%":"ج.م"}</span>
-      </div>
-      <button onClick={addW} style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+ Set</button>
-    </div>
-    {estPreview>0&&<div style={{fontSize:"0.68rem",color:C.accent,marginTop:"0.35rem"}}>≈ {fmtEGP(estPreview)}/mo at {MONTHS_EN[absToDate(selMonth).month]} {absToDate(selMonth).year}</div>}
-    {wError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {wError}</div>}
-    <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>Active: <span style={{color:C.accent,fontWeight:700}}>{activeLabel}</span></div>
-  </>);
-}
-
-// ── Wages Cap Input Component ─────────────────────────────────
-function WagesCapInput({wagesCapTimeline,setWagesCapTimeline,horizon,rows}){
-  const[selMonth,setSelMonth]=useState(0);
-  const[selCap,setSelCap]=useState(6000);
-  const[capError,setCapError]=useState("");
-  const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
-  const addCap=()=>{
-    if(selCap<0){setCapError("Must be 0 or more");return;}
-    setCapError("");
-    const updated=[...wagesCapTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selCap}].sort((a,b)=>a.absIdx-b.absIdx);
-    setWagesCapTimeline(updated);
-  };
-  const activeCapForMonth=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,selMonth):null;
-  const sampleRow=rows.find(r=>r.absIdx===selMonth);
-  const totalWage=sampleRow?sampleRow.bigWage+sampleRow.smallWage+(sampleRow.wagesCapDrain||0):0;
-  const fundCovers=selCap!==null&&totalWage>0?Math.max(0,totalWage-selCap):0;
-  return(<>
-    <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginTop:"0.5rem"}}>
-      <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setCapError("");}}
-        style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
-        {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
-      </select>
-      <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
-        <input type="number" value={selCap} min={0} step={500}
-          onChange={e=>{setSelCap(Number(e.target.value));setCapError("");}}
-          style={{width:"100%",background:C.bg,border:`1px solid ${capError?C.red:C.border}`,borderRadius:7,color:C.purple,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
-        <span style={{color:C.muted,fontSize:"0.7rem",flexShrink:0}}>ج.م</span>
-      </div>
-      <button onClick={addCap} style={{background:`${C.purple}18`,border:`1px solid ${C.purple}45`,borderRadius:7,color:C.purple,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>+ Set</button>
-    </div>
-    {fundCovers>0&&<div style={{fontSize:"0.68rem",color:C.purple,marginTop:"0.4rem"}}>📈 Fund covers {fmtEGP(fundCovers)} of obligations this month</div>}
-    {capError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {capError}</div>}
-    <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
-      Active cap: <span style={{color:C.purple,fontWeight:700}}>{activeCapForMonth!==null?`ج.م ${activeCapForMonth.toLocaleString()}/mo`:"No cap"}</span> · Set 0 to pay everything from fund
-    </div>
-  </>);
-}
-
 // ── Monthly Calendar Component ────────────────────────────────
-function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits,setManualDeposits,draggingDepositId,setDraggingDepositId}){
+function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits,setManualDeposits}){
   const[draggedUsdIdx,setDraggedUsdIdx]=useState(null);
+  const[draggedDepositId,setDraggedDepositId]=useState(null);
   const[dropTarget,setDropTarget]=useState(null);
 
   const handleDrop=(targetAbsIdx,e)=>{
-    // Try dataTransfer first, then fall back to shared state
-    const depositIdStr=e.dataTransfer.getData("depositId");
-    const depositId=depositIdStr?Number(depositIdStr):draggingDepositId;
-
+    const depositId=e.dataTransfer.getData("depositId");
     if(depositId){
+      const id=Number(depositId);
       const{year,month}=absToDate(targetAbsIdx);
-      setManualDeposits(prev=>prev.map(d=>d.id===depositId?{...d,absIdx:targetAbsIdx,year,month}:d));
-      setDraggingDepositId(null);
-      setDropTarget(null);
+      setManualDeposits(prev=>prev.map(d=>d.id===id?{...d,absIdx:targetAbsIdx,year,month}:d));
+      setDraggedDepositId(null);setDropTarget(null);
       return;
     }
     if(draggedUsdIdx!==null&&draggedUsdIdx!==targetAbsIdx){
@@ -1254,9 +1170,9 @@ function MonthlyCalendar({rows,usdPayoutMonths,setUsdPayoutMonths,manualDeposits
           )}
           {monthDeposits.map(d=>(
             <span key={d.id} draggable
-              onDragStart={e=>{setDraggingDepositId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
-              onDragEnd={()=>{setDraggingDepositId(null);setDropTarget(null);}}
-              style={{display:"inline-flex",alignItems:"center",gap:"0.2rem",fontSize:"0.65rem",background:draggingDepositId===d.id?`${C.teal}35`:`${C.teal}12`,border:`1px solid ${C.teal}45`,borderRadius:5,padding:"0.12rem 0.35rem",color:C.teal,cursor:"grab",userSelect:"none",opacity:draggingDepositId===d.id?0.4:1}}>
+              onDragStart={e=>{setDraggedDepositId(d.id);e.dataTransfer.setData("depositId",String(d.id));e.dataTransfer.effectAllowed="move";}}
+              onDragEnd={()=>{setDraggedDepositId(null);setDropTarget(null);}}
+              style={{display:"inline-flex",alignItems:"center",gap:"0.2rem",fontSize:"0.65rem",background:draggedDepositId===d.id?`${C.teal}35`:`${C.teal}12`,border:`1px solid ${C.teal}45`,borderRadius:5,padding:"0.12rem 0.35rem",color:C.teal,cursor:"grab",userSelect:"none",opacity:draggedDepositId===d.id?0.4:1}}>
               ➕ {fmtEGP(d.egpAmount)} ⠿
               <button onClick={e=>{e.stopPropagation();setManualDeposits(prev=>prev.filter(x=>x.id!==d.id));}}
                 style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.6rem",padding:"0 0.05rem",lineHeight:1}}>✕</button>
@@ -1340,7 +1256,6 @@ function App(){
   const[manualDeposits,setManualDeposits]=useState(local.manualDeposits||[]);
   const[bigCircleAmounts,setBigCircleAmounts]=useState(local.bigCircleAmounts||[...DEFAULT_BIG_AMOUNTS]);
   const[smallCircleAmounts,setSmallCircleAmounts]=useState(local.smallCircleAmounts||[...DEFAULT_SMALL_AMOUNTS]);
-  const[draggingDepositId,setDraggingDepositId]=useState(null);
   const[initialFund,setInitialFund]=useState(local.initialFund||40000);
   const[fundInput,setFundInput]=useState(String(local.initialFund||40000));
   const[goals,setGoals]=useState(local.goals||[]);
@@ -1605,7 +1520,80 @@ function App(){
               })}
 
               {/* Add new withdrawal point */}
-              <WithdrawalInput withdrawalTimeline={withdrawalTimeline} setWithdrawalTimeline={setWithdrawalTimeline} horizon={horizon} rows={rows}/>
+              {(()=>{
+                const[selMonth,setSelMonth]=useState(0);
+                const[selAmount,setSelAmount]=useState(0);
+                const[selMode,setSelMode]=useState("pct"); // "pct" or "egp"
+                const[wError,setWError]=useState("");
+                const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+
+                // Preview: estimate withdrawal based on mode
+                const sampleRow=rows.find(r=>r.absIdx===selMonth);
+                const estPreview=sampleRow&&selAmount>0
+                  ? selMode==="pct"
+                    ? Math.round(sampleRow.returnAmt*(selAmount/100))
+                    : selAmount
+                  : 0;
+
+                const addW=()=>{
+                  if(selAmount<=0){setWError("Enter an amount greater than 0.");return;}
+                  if(selMode==="pct"&&selAmount>100){setWError("Percentage must be 0–100%");return;}
+                  setWError("");
+                  const updated=[...withdrawalTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selAmount,mode:selMode}].sort((a,b)=>a.absIdx-b.absIdx);
+                  setWithdrawalTimeline(updated);
+                  setSelAmount(0);
+                };
+
+                // Get current active setting for selected month
+                const activePoint=withdrawalTimeline.slice().reverse().find(p=>p.absIdx<=selMonth)||null;
+                const activeLabel=activePoint
+                  ? activePoint.mode==="pct"?`${activePoint.amount}% of return`:fmtEGP(activePoint.amount)+" fixed"
+                  : "No withdrawal";
+
+                return(<>
+                  {/* Mode toggle */}
+                  <div style={{display:"flex",gap:"0.4rem",marginBottom:"0.6rem",marginTop:"0.5rem"}}>
+                    {[["pct","% of Return"],["egp","Fixed ج.م"]].map(([m,l])=>(
+                      <button key={m} onClick={()=>{setSelMode(m);setSelAmount(0);setWError("");}}
+                        style={{flex:1,padding:"0.35rem",borderRadius:8,border:`1px solid ${selMode===m?C.accent:C.border}`,background:selMode===m?`${C.accent}18`:"transparent",color:selMode===m?C.accent:C.muted,fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:selMode===m?700:400}}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap"}}>
+                    <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setWError("");}}
+                      style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
+                      {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+                    </select>
+                    <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
+                      <input type="number" value={selAmount||""} min={0} max={selMode==="pct"?100:99999} step={selMode==="pct"?5:100}
+                        onChange={e=>{setSelAmount(Number(e.target.value));setWError("");}}
+                        placeholder={selMode==="pct"?"e.g. 30":"e.g. 2000"}
+                        style={{width:"100%",background:C.bg,border:`1px solid ${wError?C.red:C.border}`,borderRadius:7,color:C.accent,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
+                      <span style={{color:C.muted,fontSize:"0.78rem",flexShrink:0}}>{selMode==="pct"?"%":"ج.م"}</span>
+                    </div>
+                    <button onClick={addW}
+                      style={{background:`${C.accent}18`,border:`1px solid ${C.accent}40`,borderRadius:7,color:C.accent,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                      + Set
+                    </button>
+                  </div>
+
+                  {/* Live preview */}
+                  {estPreview>0&&<div style={{fontSize:"0.68rem",color:C.accent,marginTop:"0.35rem"}}>
+                    ≈ {fmtEGP(estPreview)}/mo withdrawn at {MONTHS_EN[absToDate(selMonth).month]} {absToDate(selMonth).year}
+                    {selMode==="pct"&&sampleRow&&<span style={{color:C.muted}}> ({selAmount}% of ≈{fmtEGP(Math.round(sampleRow.returnAmt))} return)</span>}
+                  </div>}
+
+                  {wError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {wError}</div>}
+                  <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
+                    Active for selected month: <span style={{color:C.accent,fontWeight:700}}>{activeLabel}</span>
+                  </div>
+                  {withdrawalTimeline.length>0&&<div style={{fontSize:"0.68rem",color:C.sub,marginTop:"0.7rem",lineHeight:1.5,background:`${C.blue}08`,borderRadius:8,padding:"0.5rem 0.7rem"}}>
+                    💡 To route withdrawn cash to circles, set boost amounts in the panel above.
+                  </div>}
+                </>);
+              })()}
             </div>
 
             {/* Wages Cap Timeline Panel */}
@@ -1631,35 +1619,51 @@ function App(){
                     style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"0.78rem"}}>✕</button>
                 </div>);
               })}
-              <WagesCapInput wagesCapTimeline={wagesCapTimeline} setWagesCapTimeline={setWagesCapTimeline} horizon={horizon} rows={rows}/>
+              {(()=>{
+                const[selMonth,setSelMonth]=useState(0);
+                const[selCap,setSelCap]=useState(6000);
+                const[capError,setCapError]=useState("");
+                const monthOptions=Array.from({length:horizon},(_,i)=>{const{year,month}=absToDate(i);return{absIdx:i,label:`${MONTHS_EN[month]} ${year}`};});
+                const addCap=()=>{
+                  if(selCap<0){setCapError("Must be 0 or more");return;}
+                  setCapError("");
+                  const updated=[...wagesCapTimeline.filter(p=>p.absIdx!==selMonth),{absIdx:selMonth,amount:selCap}].sort((a,b)=>a.absIdx-b.absIdx);
+                  setWagesCapTimeline(updated);
+                };
+                const activeCapForMonth=wagesCapTimeline.length>0?getBoostAt(wagesCapTimeline,selMonth):null;
+                const sampleRow=rows.find(r=>r.absIdx===selMonth);
+                const totalWage=sampleRow?sampleRow.bigWage+sampleRow.smallWage+(sampleRow.wagesCapDrain||0):0;
+                const fundCovers=selCap!==null&&totalWage>0?Math.max(0,totalWage-selCap):0;
+                return(<>
+                  <div style={{display:"flex",gap:"0.4rem",flexWrap:"wrap",marginTop:"0.5rem"}}>
+                    <select value={selMonth} onChange={e=>{setSelMonth(Number(e.target.value));setCapError("");}}
+                      style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"0.35rem",fontSize:"0.72rem",fontFamily:"inherit",flex:"1 1 90px",minWidth:0}}>
+                      {monthOptions.map(o=><option key={o.absIdx} value={o.absIdx}>{o.label}</option>)}
+                    </select>
+                    <div style={{display:"flex",alignItems:"center",gap:"0.3rem",flex:"1 1 80px"}}>
+                      <input type="number" value={selCap} min={0} step={500}
+                        onChange={e=>{setSelCap(Number(e.target.value));setCapError("");}}
+                        style={{width:"100%",background:C.bg,border:`1px solid ${capError?C.red:C.border}`,borderRadius:7,color:C.purple,padding:"0.35rem",fontSize:"0.78rem",fontFamily:"monospace",outline:"none"}}/>
+                      <span style={{color:C.muted,fontSize:"0.7rem",flexShrink:0}}>ج.م</span>
+                    </div>
+                    <button onClick={addCap}
+                      style={{background:`${C.purple}18`,border:`1px solid ${C.purple}45`,borderRadius:7,color:C.purple,padding:"0.3rem 0.7rem",fontSize:"0.72rem",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                      + Set
+                    </button>
+                  </div>
+                  {fundCovers>0&&<div style={{fontSize:"0.68rem",color:C.purple,marginTop:"0.4rem"}}>
+                    📈 Fund covers ج.م {fundCovers.toLocaleString()} of circle obligations this month
+                  </div>}
+                  {capError&&<div style={{fontSize:"0.65rem",color:C.red,marginTop:"0.3rem"}}>⚠️ {capError}</div>}
+                  <div style={{fontSize:"0.62rem",color:C.muted,marginTop:"0.3rem"}}>
+                    Active cap: <span style={{color:C.purple,fontWeight:700}}>{activeCapForMonth!==null?`ج.م ${activeCapForMonth.toLocaleString()}/mo`:"No cap"}</span>
+                    {" · "}Set 0 to pay everything from fund
+                  </div>
+                </>);
+              })()}
             </div>
           </div>
 
           {/* RIGHT */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:15,overflow:"hidden"}}>
-            <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,padding:"0 0.6rem",overflowX:"auto"}}>
-              {[["calendar","📅 Monthly"],["schedule","📊 Schedule"],["income","💼 Income"],["yearly","📆 Yearly"],["circles","⭕ Circles"],["goals","🎯 Goals"],["insights","🤖 AI Insights"]].map(([t,l])=>(
-                <button key={t} style={tabStyle(t)} onClick={()=>setActiveTab(t)}>{l}</button>
-              ))}
-            </div>
-
-            {/* Monthly Calendar */}
-            {activeTab==="calendar"&&<MonthlyCalendar rows={rows} usdPayoutMonths={usdPayoutMonths} setUsdPayoutMonths={setUsdPayoutMonths} manualDeposits={manualDeposits} setManualDeposits={setManualDeposits} draggingDepositId={draggingDepositId} setDraggingDepositId={setDraggingDepositId}/>}
-
-            {/* Cash Flow */}
-            {/* Schedule Table */}
-            {activeTab==="schedule"&&(()=>{
-              // Build circle data for the table
-              const tableMonths=Array.from({length:horizon+2},(_,i)=>({
-                absIdx:i-2,
-                label:`${MONTHS_EN[((3+i-2)%12+12)%12]} ${2026+Math.floor((3+i-2)/12)}`,
-                month:((3+i-2)%12+12)%12,
-              }));
-              const bigCircles=[];let bi=0;
-              for(let start=-2;start<horizon;start+=2){
-                bigCircles.push({idx:bi,start,end:start+5,amount:bigCircleAmounts[bi]||2000,payoutAbsIdx:start+3,payout:(bigCircleAmounts[bi]||2000)*5});
-                bi++;
-              }
-              const smallCircles=[];let si=0;
-              for(let start=1;start<horizon;start+=2){
-                smal
+            <div style={{displ
